@@ -7,9 +7,10 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
     
-<script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js"></script>
-<script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js"></script>
+    <!-- These Firebase SDK loads are perfect! Keep them here. -->
+    <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js"></script>
 
     
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
@@ -27,79 +28,136 @@
         }
     </script>
     
-<script>
-    // ----------------------------------------------------
-    // 1. Firebase SDK Imports
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
-    import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
-    import { getFirestore, collection, addDoc, getDocs, onSnapshot, doc, updateDoc, deleteDoc, query, where } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
+    <!-- Delete this entire script block from the head! -->
+    <!-- <script>
+        // ... all the Firebase imports, config, init, and performLogin/logout functions ...
+    </script> -->
 
-    // ----------------------------------------------------
-    // 2. Firebase configuration
-    const firebaseConfig = {
-        apiKey: "AIzaSyBKcmEczz9H0OiPvAe3PkzEvbfcMNyjKm8",
-        authDomain: "mamalaka-wiki.firebaseapp.com",
-        projectId: "mamalaka-wiki",
-        storageBucket: "mamalaka-wiki.firebasestorage.app",
-        messagingSenderId: "179732642622",
-        appId: "1:179732642622:web:13742db6cd8cd7031fca6f",
-    };
+    <style>
+        /* ... your CSS ... */
+    </style>
+</head>
+<body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-white min-h-screen">
+    <!-- ... your HTML body content ... -->
 
-    // ----------------------------------------------------
-    // 3. Initialize Firebase App and Services
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);     // Firebase Authentication instance
-    const db = getFirestore(app);  // Cloud Firestore instance
+    <!-- Custom Modal for Confirmations -->
+    <div id="confirmModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <!-- ... modal content ... -->
+    </div>
 
-    // ----------------------------------------------------
-    // 4. Declare appState and other global constants/variables that functions depend on
-    let appState = {
-        wikis: [],
-        currentWiki: null,
-        currentPage: null,
-        editingPage: null,
-        currentUser: null,
-        users: [] // Keep this for now; integrate Firestore for users later
-    };
+    <!-- THIS IS WHERE ALL YOUR JAVASCRIPT CODE WILL NOW LIVE -->
+    <script>
+        // ----------------------------------------------------
+        // 1. Firebase SDK Imports (now moved here)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, onSnapshot, doc, updateDoc, deleteDoc, query, where } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 
-    // User Roles and Permissions
-    const ROLES = {
-        OWNER: 'owner',
-        ADMIN: 'admin', 
-        EDITOR: 'editor',
-        CONTRIBUTOR: 'contributor',
-        VIEWER: 'viewer'
-    };
+        // ----------------------------------------------------
+        // 2. Firebase configuration (now moved here)
+        const firebaseConfig = {
+            apiKey: "AIzaSyBKcmEczz9H0OiPvAe3PkzEvbfcMNyjKm8",
+            authDomain: "mamalaka-wiki.firebaseapp.com",
+            projectId: "mamalaka-wiki",
+            storageBucket: "mamalaka-wiki.firebasestorage.app",
+            messagingSenderId: "179732642622",
+            appId: "1:179732642622:web:13742db6cd8cd7031fca6f",
+        };
 
-    // ... (rest of ROLES, PERMISSIONS, ROLE_PERMISSIONS) ...
+        // ----------------------------------------------------
+        // 3. Initialize Firebase App and Services (now moved here)
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);     // Firebase Authentication instance
+        const db = getFirestore(app);  // Cloud Firestore instance
 
-    // ----------------------------------------------------
-    // 5. Now, place your functions like performLogin, logout, initApp, etc.
-    //    These functions can now safely reference `appState` because it's defined.
+        // ----------------------------------------------------
+        // 4. Declare appState and other global constants/variables that functions depend on
+        let appState = {
+            wikis: [],
+            currentWiki: null,
+            currentPage: null,
+            editingPage: null,
+            currentUser: null,
+            users: [] // Keep this for now; integrate Firestore for users later
+        };
 
-    async function performLogin(event) {
-        // ... (your Firebase Auth login logic) ...
-        // appState.currentUser can now be accessed!
-    }
+        // User Roles and Permissions (these can stay where they are, after appState)
+        const ROLES = {
+            OWNER: 'owner',
+            ADMIN: 'admin', 
+            EDITOR: 'editor',
+            CONTRIBUTOR: 'contributor',
+            VIEWER: 'viewer'
+        };
 
-    async function logout() {
-        // ... (your Firebase Auth logout logic) ...
-        // appState.currentUser can now be accessed!
-    }
+        const PERMISSIONS = {
+            // ... your PERMISSIONS ...
+        };
 
-    function initApp() {
-        // ...
-    }
+        const ROLE_PERMISSIONS = {
+            // ... your ROLE_PERMISSIONS ...
+        };
 
-    // ... (all your other functions) ...
+        // ----------------------------------------------------
+        // 5. Now, place your functions like performLogin, logout, initApp, etc.
+        //    They can now safely reference `appState`, `auth`, `db`, etc.
 
-    // ----------------------------------------------------
-    // 6. Your DOMContentLoaded listener and initApp call (at the very bottom)
-    document.addEventListener('DOMContentLoaded', initApp);
+        async function performLogin(event) {
+            event.preventDefault();
+            const email = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            try {
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+                
+                appState.currentUser = {
+                    id: user.uid,
+                    username: user.email,
+                    wikiRoles: {}
+                };
+                
+                showAlert(`Welcome, ${user.email}!`);
+                updateUIBasedOnUser();
+                showWikiList();
+            } catch (error) {
+                console.error("Firebase Auth Error:", error.code, error.message);
+                showAlert(`Login failed: ${error.message}`);
+            }
+        }
 
-    // ... (your setTimeout for sample data - we'll replace this with Firestore loading soon!) ...
+        async function logout() {
+            try {
+                await signOut(auth);
+                appState.currentUser = null;
+                appState.currentWiki = null;
+                appState.currentPage = null;
+                showAlert('Logged out successfully!');
+                updateUIBasedOnUser();
+                showWikiList();
+                toggleUserDropdown();
+            } catch (error) {
+                console.error("Firebase Auth Logout Error:", error.code, error.message);
+                showAlert(`Logout failed: ${error.message}`);
+            }
+        }
 
-</script>
+        // ----------------------------------------------------
+        // All your other functions (initApp, showWikiList, createWiki, renderWikis, etc.)
+        // These will naturally follow the `performLogin` and `logout` functions
+        // ... (all the rest of your functions) ...
+
+        // ----------------------------------------------------
+        // Your DOMContentLoaded listener and initApp call (at the very bottom)
+        document.addEventListener('DOMContentLoaded', initApp);
+
+        // Add some sample data for demonstration (remove setTimeout later when Firestore is fully active)
+        setTimeout(() => {
+            // ... demo wiki data ...
+        }, 100);
+    </script>
+</body>
+</html>
 
 
     <style>
