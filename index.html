@@ -248,4 +248,484 @@
                     <option value="editor">Editor</option>
                     <option value="admin">Admin</option>
                 </select>
-                <button type="submit" class="bg-blue-500 hover:bg-blue
+                <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md">Add User</button>
+            </form>
+            <div class="flex justify-end">
+                <button type="button" onclick="hideModal('manageUsersModal')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="message-container" class="fixed bottom-4 right-4 z-50">
+        <!-- Messages will appear here -->
+    </div>
+
+    <script>
+        // Firebase setup
+        const firebaseConfig = {
+            // Your Firebase project configuration
+            // Replace with your actual Firebase config from your project settings
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        // Initialize Firebase
+        const app = firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore(); // Get Firestore instance
+
+        // Initialize Marked for Markdown parsing
+        marked.setOptions({
+            gfm: true, // Use GitHub flavored markdown
+            breaks: true // Enable GFM line breaks
+        });
+
+        // appState and other global variables
+        const appState = {
+            currentUser: null,
+            wikis: [], // This will now be populated from Firestore
+            users: [], // Will be populated from Firestore 'users' collection
+            currentPage: null,
+            currentWiki: null,
+            searchTerm: '',
+            sidebarOpen: false, // Start sidebar closed for mobile
+            isDarkMode: window.matchMedia('(prefers-color-scheme: dark)').matches // Initialize based on system preference
+        };
+
+        // User Roles and Permissions
+        const ROLES = {
+            OWNER: 'owner',
+            ADMIN: 'admin', 
+            EDITOR: 'editor',
+            CONTRIBUTOR: 'contributor',
+            VIEWER: 'viewer'
+        };
+
+        const PERMISSIONS = {
+            // Wiki-level permissions
+            DELETE_WIKI: 'delete_wiki',
+            EDIT_WIKI: 'edit_wiki',
+            MANAGE_USERS: 'manage_users',
+            
+            // Page-level permissions
+            CREATE_PAGE: 'create_page',
+            EDIT_PAGE: 'edit_page',
+            DELETE_PAGE: 'delete_page',
+            VIEW_PAGE: 'view_page'
+        };
+
+        const ROLE_PERMISSIONS = {
+            [ROLES.OWNER]: [
+                PERMISSIONS.DELETE_WIKI, PERMISSIONS.EDIT_WIKI, PERMISSIONS.MANAGE_USERS,
+                PERMISSIONS.CREATE_PAGE, PERMISSIONS.EDIT_PAGE, PERMISSIONS.DELETE_PAGE, PERMISSIONS.VIEW_PAGE
+            ],
+            [ROLES.ADMIN]: [
+                PERMISSIONS.EDIT_WIKI, PERMISSIONS.MANAGE_USERS,
+                PERMISSIONS.CREATE_PAGE, PERMISSIONS.EDIT_PAGE, PERMISSIONS.DELETE_PAGE, PERMISSIONS.VIEW_PAGE
+            ],
+            [ROLES.EDITOR]: [
+                PERMISSIONS.CREATE_PAGE, PERMISSIONS.EDIT_PAGE, PERMISSIONS.DELETE_PAGE, PERMISSIONS.VIEW_PAGE
+            ],
+            [ROLES.CONTRIBUTOR]: [
+                PERMISSIONS.CREATE_PAGE, PERMISSIONS.EDIT_PAGE, PERMISSIONS.VIEW_PAGE
+            ],
+            [ROLES.VIEWER]: [
+                PERMISSIONS.VIEW_PAGE
+            ]
+        };
+
+        // Permission checking functions
+        function hasPermission(permission, wikiId = null) {
+            if (!appState.currentUser) return false;
+            
+            // Find the current user's role for the specific wiki
+            const userWikiRole = (appState.currentWiki?.users || []).find(u => u.userId === appState.currentUser.id)?.role;
+
+            if (userWikiRole) {
+                return ROLE_PERMISSIONS[userWikiRole] && ROLE_PERMISSIONS[userWikiRole].includes(permission);
+            }
+            
+            // If it's a public wiki and the permission is just to view, allow it
+            if (permission === PERMISSIONS.VIEW_PAGE && appState.currentWiki?.isPublic) {
+                return true;
+            }
+
+            return false;
+        }
+
+        function getUserRole(wikiId) {
+            if (!appState.currentUser || !appState.currentWiki) return null;
+            return (appState.currentWiki.users || []).find(u => u.userId === appState.currentUser.id)?.role || null;
+        }
+
+        function canAccessWiki(wiki) {
+            if (!appState.currentUser) {
+                // If no user is logged in, only public wikis are accessible
+                return wiki.isPublic;
+            }
+            // If logged in, check if public or if user has any role in the wiki
+            return wiki.isPublic || (wiki.users || []).some(u => u.userId === appState.currentUser.id);
+        }
+
+        // --- Utility Functions ---
+        function updateAppState(newValues) {
+            Object.assign(appState, newValues);
+            renderApp(); // This function should re-render UI based on appState
+        }
+
+        function displayMessage(message, type = 'info', duration = 3000) {
+            const container = document.getElementById('message-container');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `p-3 mb-2 rounded-md shadow-md text-white ${
+                type === 'success' ? 'bg-green-500' :
+                type === 'error' ? 'bg-red-500' :
+                'bg-blue-500'
+            }`;
+            messageDiv.textContent = message;
+            container.appendChild(messageDiv);
+
+            setTimeout(() => {
+                messageDiv.remove();
+            }, duration);
+        }
+
+        function showModal(modalId) {
+            document.getElementById(modalId).classList.remove('hidden');
+        }
+
+        function hideModal(modalId) {
+            document.getElementById(modalId).classList.add('hidden');
+        }
+
+        function toggleDarkMode() {
+            appState.isDarkMode = !appState.isDarkMode;
+            document.documentElement.classList.toggle('dark', appState.isDarkMode);
+            localStorage.setItem('darkMode', appState.isDarkMode);
+        }
+
+        function toggleSidebar() {
+            appState.sidebarOpen = !appState.sidebarOpen;
+            const sidebar = document.getElementById('sidebar');
+            if (appState.sidebarOpen) {
+                sidebar.classList.remove('-translate-x-full');
+            } else {
+                sidebar.classList.add('-translate-x-full');
+            }
+        }
+
+        // --- Rendering Functions ---
+        function renderApp() {
+            document.documentElement.classList.toggle('dark', appState.isDarkMode);
+            document.getElementById('user-info').style.display = appState.currentUser ? 'flex' : 'none';
+            document.getElementById('user-display-name').textContent = appState.currentUser ? appState.currentUser.name || appState.currentUser.email : '';
+
+            document.getElementById('app-section').classList.toggle('hidden', !appState.currentUser);
+            document.getElementById('auth-section').classList.toggle('hidden', !!appState.currentUser);
+
+            renderWikis();
+            // renderPages(); // This function is now mostly handled by updateSidebarDisplay
+            renderPageContent(); // Ensure page content is rendered
+            renderPageEditorState(); // Render state of page editor
+            renderWikiActions(); // Render wiki action buttons
+            renderManageUsersModal(); // Update user management modal
+            updateSidebarDisplay(); // Update sidebar visibility and content
+        }
+
+        function updateSidebarDisplay() {
+            const currentWikiSidebarInfo = document.getElementById('current-wiki-sidebar-info');
+            const sidebarPagesList = document.getElementById('sidebar-pages-list');
+            const sidebarAddPageButton = document.getElementById('sidebar-add-page-button');
+
+            if (appState.currentWiki && canAccessWiki(appState.currentWiki)) {
+                currentWikiSidebarInfo.classList.remove('hidden');
+                document.getElementById('sidebar-wiki-name').textContent = appState.currentWiki.name;
+                document.getElementById('sidebar-wiki-description').textContent = appState.currentWiki.description;
+
+                sidebarAddPageButton.classList.toggle('hidden', !hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id));
+
+                if (appState.currentWiki.pages && appState.currentWiki.pages.length > 0) {
+                    sidebarPagesList.innerHTML = appState.currentWiki.pages.map(page => `
+                        <li class="p-2 rounded-md cursor-pointer transition hover:bg-gray-200 dark:hover:bg-gray-600 ${appState.currentPage && appState.currentPage.id === page.id ? 'bg-blue-500 text-white hover:!bg-blue-600' : 'text-gray-800 dark:text-gray-100'}">
+                            <a href="#" onclick="selectPage('${page.id}')">${page.title}</a>
+                        </li>
+                    `).join('');
+                } else {
+                    sidebarPagesList.innerHTML = '<li class="text-sm text-gray-500 dark:text-gray-400 italic">No pages yet.</li>';
+                }
+            } else {
+                currentWikiSidebarInfo.classList.add('hidden');
+            }
+        }
+
+        function renderWikis() {
+            const wikiList = document.getElementById('wiki-list');
+            wikiList.innerHTML = ''; // Clear existing wikis
+
+            const filteredWikis = appState.wikis.filter(wiki =>
+                canAccessWiki(wiki) && // Only show wikis the current user can access
+                ((wiki.name || '').toLowerCase().includes(appState.searchTerm.toLowerCase()) ||
+                (wiki.description || '').toLowerCase().includes(appState.searchTerm.toLowerCase()))
+            );
+
+            if (filteredWikis.length === 0) {
+                wikiList.innerHTML = '<li class="text-gray-600 dark:text-gray-400">No wikis available.</li>';
+                return;
+            }
+
+            filteredWikis.forEach(wiki => {
+                const wikiElement = document.createElement('li');
+                wikiElement.className = `p-3 rounded-md cursor-pointer flex items-center space-x-3 transition hover:bg-gray-300 dark:hover:bg-gray-700 ${appState.currentWiki && appState.currentWiki.id === wiki.id ? 'bg-primary text-white hover:!bg-primary-dark' : 'bg-gray-100 dark:bg-gray-700'}`;
+                wikiElement.innerHTML = `
+                    <span class="text-2xl">${wiki.icon || '📚'}</span>
+                    <div class="flex-1">
+                        <div class="font-semibold text-lg ${appState.currentWiki && appState.currentWiki.id === wiki.id ? 'text-white' : 'text-gray-800 dark:text-gray-100'}">${wiki.name}</div>
+                        <div class="text-sm ${appState.currentWiki && appState.currentWiki.id === wiki.id ? 'text-gray-200' : 'text-gray-600 dark:text-gray-400'}">${wiki.description}</div>
+                    </div>
+                `;
+                wikiElement.onclick = () => selectWiki(wiki.id);
+                wikiList.appendChild(wikiElement);
+            });
+        }
+
+        // This function is still present but its direct HTML counterpart (page-list-sidebar) is removed.
+        // The pages are now rendered in the main sidebar under "Current Wiki Info".
+        function renderPages() {
+            // This function now primarily updates the main content area based on appState.currentPage
+            // The list of pages in the sidebar is handled by updateSidebarDisplay
+        }
+
+        function renderPageContent() {
+            const pageDisplay = document.getElementById('page-display');
+            const pageEditFormContainer = document.getElementById('page-edit-form-container');
+
+            if (appState.currentPage) {
+                pageDisplay.innerHTML = marked.parse(appState.currentPage.content || 'No content for this page.');
+                pageDisplay.classList.remove('hidden');
+                pageEditFormContainer.classList.add('hidden');
+            } else {
+                pageDisplay.innerHTML = '<p class="text-gray-600 dark:text-gray-400">Select a page or create a new one.</p>';
+                pageDisplay.classList.remove('hidden');
+                pageEditFormContainer.classList.add('hidden');
+            }
+        }
+
+        function renderPageEditorState() {
+            const pageEditFormContainer = document.getElementById('page-edit-form-container');
+            const pageTitleInput = document.getElementById('page-title-input');
+            const pageContentEditor = document.getElementById('page-content-editor'); // Corrected ID
+            const editFormTitle = document.getElementById('edit-form-title');
+            const deletePageButton = document.getElementById('delete-page-button');
+            const pagePreview = document.getElementById('page-preview'); // Corrected ID
+
+            if (pageEditFormContainer.classList.contains('hidden')) {
+                document.getElementById('page-display').classList.remove('hidden');
+                return;
+            }
+
+            document.getElementById('page-display').classList.add('hidden');
+
+            if (appState.currentPage) {
+                editFormTitle.textContent = 'Edit Page';
+                pageTitleInput.value = appState.currentPage.title;
+                pageContentEditor.value = appState.currentPage.content;
+                deletePageButton.classList.toggle('hidden', !hasPermission(PERMISSIONS.DELETE_PAGE, appState.currentWiki.id));
+            } else {
+                editFormTitle.textContent = 'Create New Page';
+                pageTitleInput.value = '';
+                pageContentEditor.value = '';
+                deletePageButton.classList.add('hidden'); // Cannot delete a page that doesn't exist yet
+            }
+            updatePreview(); // Initial preview update when form is shown
+        }
+
+        function updatePreview() {
+            const pageContentEditor = document.getElementById('page-content-editor');
+            const pagePreview = document.getElementById('page-preview');
+            
+            if (pageContentEditor && pagePreview) { // Null checks for safety
+                const content = pageContentEditor.value;
+                if (content.trim()) {
+                    pagePreview.innerHTML = marked.parse(content);
+                } else {
+                    pagePreview.innerHTML = '<p class="text-gray-500 dark:text-gray-400 italic">Preview will appear here as you type...</p>';
+                }
+            }
+        }
+
+        function renderWikiActions() {
+            const addPageButton = document.getElementById('add-page-button');
+            const manageUsersButton = document.getElementById('manage-users-button');
+            const deleteWikiButton = document.getElementById('delete-wiki-button');
+
+            addPageButton.classList.toggle('hidden', !appState.currentWiki || !hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id));
+            manageUsersButton.classList.toggle('hidden', !appState.currentWiki || !hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki.id));
+            deleteWikiButton.classList.toggle('hidden', !appState.currentWiki || !hasPermission(PERMISSIONS.DELETE_WIKI, appState.currentWiki.id));
+
+            document.getElementById('wiki-title').textContent = appState.currentWiki ? appState.currentWiki.name : 'Select a Wiki';
+            document.getElementById('wiki-description').textContent = appState.currentWiki ? appState.currentWiki.description : '';
+        }
+
+        function renderManageUsersModal() {
+            const userListContainer = document.getElementById('user-list-container');
+            const noUsersMessage = document.getElementById('no-users-message');
+            userListContainer.innerHTML = ''; // Clear previous list
+
+            if (!appState.currentWiki || !appState.currentWiki.users || appState.currentWiki.users.length === 0) {
+                noUsersMessage.classList.remove('hidden');
+                return;
+            }
+
+            noUsersMessage.classList.add('hidden');
+            appState.currentWiki.users.forEach(wikiUser => {
+                const userElement = document.createElement('div');
+                userElement.className = 'flex justify-between items-center bg-gray-100 dark:bg-gray-700 p-2 rounded-md mb-2';
+                // Find user from the dynamically loaded appState.users
+                const user = appState.users.find(u => u.id === wikiUser.userId);
+                const userName = user ? user.email : wikiUser.userId; // Fallback to ID if user not found in appState.users
+
+                userElement.innerHTML = `
+                    <span>${userName} (${wikiUser.role})</span>
+                    ${hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki.id) && wikiUser.userId !== appState.currentUser.id ? `
+                    <button class="remove-user-button bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded" data-user-id="${wikiUser.userId}">Remove</button>
+                    ` : ''}
+                `;
+                userListContainer.appendChild(userElement);
+            });
+
+            document.querySelectorAll('.remove-user-button').forEach(button => {
+                button.onclick = (e) => removeUserFromWiki(e.target.dataset.userId);
+            });
+        }
+
+
+        // --- Core Application Logic ---
+
+        // Function to load user profiles from Firestore
+        async function loadUsers() {
+            try {
+                // Real-time listener for user profiles
+                db.collection("users").onSnapshot(snapshot => {
+                    const fetchedUsers = [];
+                    snapshot.forEach(doc => {
+                        fetchedUsers.push({ id: doc.id, ...doc.data() });
+                    });
+                    updateAppState({ users: fetchedUsers }); // Update appState with all user profiles
+                }, error => {
+                    console.error("Error fetching users: ", error);
+                    displayMessage('Error loading user profiles.', 'error');
+                });
+            } catch (e) {
+                console.error("Error setting up Firestore users listener:", e);
+            }
+        }
+
+        // Function to load wikis and pages from Firestore
+        async function loadWikisAndPages() {
+            try {
+                // Real-time listener for wikis
+                db.collection("wikis").orderBy("lastUpdated", "desc").onSnapshot(async snapshot => {
+                    const fetchedWikis = [];
+                    for (const doc of snapshot.docs) {
+                        const wikiData = { id: doc.id, ...doc.data() };
+                        // Fetch pages for each wiki
+                        const pagesSnapshot = await db.collection("pages")
+                            .where("wikiId", "==", wikiData.id)
+                            .orderBy("title")
+                            .get();
+                        wikiData.pages = pagesSnapshot.docs.map(pageDoc => ({ id: pageDoc.id, ...pageDoc.data() }));
+                        fetchedWikis.push(wikiData);
+                    }
+                    updateAppState({ wikis: fetchedWikis });
+                    
+                    // If a currentWiki is set, ensure it's still in the fetched list
+                    if (appState.currentWiki) {
+                        const updatedCurrentWiki = fetchedWikis.find(w => w.id === appState.currentWiki.id);
+                        if (updatedCurrentWiki) {
+                            updateAppState({ currentWiki: updatedCurrentWiki }); // Update currentWiki with fresh data including pages
+                            // If a page was selected, re-select it to update content
+                            if (appState.currentPage) {
+                                const updatedCurrentPage = updatedCurrentWiki.pages.find(p => p.id === appState.currentPage.id);
+                                updateAppState({ currentPage: updatedCurrentPage || null });
+                            }
+                        } else {
+                            // Current wiki was deleted
+                            updateAppState({ currentWiki: null, currentPage: null });
+                        }
+                    }
+                    renderWikis(); // Re-render the wiki list
+                    updateSidebarDisplay(); // Re-render sidebar content
+                }, error => {
+                    console.error("Error fetching wikis and pages: ", error);
+                    displayMessage('Error loading wikis and pages. Please try again.', 'error');
+                });
+            } catch (e) {
+                console.error("Error setting up Firestore listeners:", e);
+            }
+        }
+
+        async function createWiki(event) {
+            event.preventDefault();
+            if (!appState.currentUser) {
+                displayMessage('You must be logged in to create a wiki.', 'error');
+                return;
+            }
+
+            const wikiName = document.getElementById('new-wiki-name').value;
+            const wikiDescription = document.getElementById('new-wiki-description').value;
+            const wikiIcon = document.getElementById('new-wiki-icon').value;
+            const isPublic = document.getElementById('new-wiki-is-public').checked;
+
+            if (!wikiName.trim()) {
+                displayMessage('Wiki name cannot be empty.', 'error');
+                return;
+            }
+
+            try {
+                const newWikiRef = await db.collection("wikis").add({
+                    name: wikiName,
+                    description: wikiDescription,
+                    icon: wikiIcon || '📚',
+                    isPublic: isPublic,
+                    ownerId: appState.currentUser.id, // Store the creator's ID
+                    users: [{ userId: appState.currentUser.id, role: ROLES.OWNER }], // Creator is owner
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                // After creating the wiki, create a default 'Home Page' for it
+                await db.collection("pages").add({
+                    wikiId: newWikiRef.id,
+                    title: 'Home Page',
+                    content: `## Welcome to ${wikiName}!\n\nThis is your wiki's home page. Start adding content here.`,
+                    creatorId: appState.currentUser.id,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                document.getElementById('create-wiki-form').reset();
+                hideModal('createWikiModal');
+                displayMessage('Wiki and default Home Page created successfully!', 'success');
+                selectWiki(newWikiRef.id); // Automatically select the new wiki
+            } catch (error) {
+                console.error("Error creating wiki or default page: ", error);
+                displayMessage('Failed to create wiki. ' + error.message, 'error');
+            }
+        }
+
+
+        async function selectWiki(wikiId) {
+            const selectedWiki = appState.wikis.find(wiki => wiki.id === wikiId);
+            if (!selectedWiki) {
+                displayMessage('Wiki not found.', 'error');
+                return;
+            }
+
+            if (!canAccessWiki(selectedWiki)) {
+                displayMessage('You do not have permission to access this wiki.', 'error');
+                updateAppState({ currentWiki: null, currentPage: null });
+                return;
+            }
