@@ -7,7 +7,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
     
-    <!-- These Firebase SDK loads are perfect! Keep them here. -->
     <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js"></script>
@@ -28,1433 +27,913 @@
         }
     </script>
     
-    <!-- Delete this entire script block from the head! -->
-    <!-- <script>
-        // ... all the Firebase imports, config, init, and performLogin/logout functions ...
-    </script> -->
-
-    <style>
-        /* ... your CSS ... */
-    </style>
 </head>
-<body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-white min-h-screen">
-    <!-- ... your HTML body content ... -->
-
-    <!-- Custom Modal for Confirmations -->
-    <div id="confirmModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <!-- ... modal content ... -->
-    </div>
-
-    <!-- THIS IS WHERE ALL YOUR JAVASCRIPT CODE WILL NOW LIVE -->
-    <script>
-        // ----------------------------------------------------
-        // 1. Firebase SDK Imports (now moved here)
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
-        import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, onSnapshot, doc, updateDoc, deleteDoc, query, where } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
-
-        // ----------------------------------------------------
-        // 2. Firebase configuration (now moved here)
-        const firebaseConfig = {
-            apiKey: "AIzaSyBKcmEczz9H0OiPvAe3PkzEvbfcMNyjKm8",
-            authDomain: "mamalaka-wiki.firebaseapp.com",
-            projectId: "mamalaka-wiki",
-            storageBucket: "mamalaka-wiki.firebasestorage.app",
-            messagingSenderId: "179732642622",
-            appId: "1:179732642622:web:13742db6cd8cd7031fca6f",
-        };
-
-        // ----------------------------------------------------
-        // 3. Initialize Firebase App and Services (now moved here)
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);     // Firebase Authentication instance
-        const db = getFirestore(app);  // Cloud Firestore instance
-
-        // ----------------------------------------------------
-        // 4. Declare appState and other global constants/variables that functions depend on
-        let appState = {
-            wikis: [],
-            currentWiki: null,
-            currentPage: null,
-            editingPage: null,
-            currentUser: null,
-            users: [] // Keep this for now; integrate Firestore for users later
-        };
-
-        // User Roles and Permissions (these can stay where they are, after appState)
-        const ROLES = {
-            OWNER: 'owner',
-            ADMIN: 'admin', 
-            EDITOR: 'editor',
-            CONTRIBUTOR: 'contributor',
-            VIEWER: 'viewer'
-        };
-
-        const PERMISSIONS = {
-            // ... your PERMISSIONS ...
-        };
-
-        const ROLE_PERMISSIONS = {
-            // ... your ROLE_PERMISSIONS ...
-        };
-
-        // ----------------------------------------------------
-        // 5. Now, place your functions like performLogin, logout, initApp, etc.
-        //    They can now safely reference `appState`, `auth`, `db`, etc.
-
-        async function performLogin(event) {
-            event.preventDefault();
-            const email = document.getElementById('loginUsername').value;
-            const password = document.getElementById('loginPassword').value;
-            
-            try {
-                const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                const user = userCredential.user;
-                
-                appState.currentUser = {
-                    id: user.uid,
-                    username: user.email,
-                    wikiRoles: {}
-                };
-                
-                showAlert(`Welcome, ${user.email}!`);
-                updateUIBasedOnUser();
-                showWikiList();
-            } catch (error) {
-                console.error("Firebase Auth Error:", error.code, error.message);
-                showAlert(`Login failed: ${error.message}`);
-            }
-        }
-
-        async function logout() {
-            try {
-                await signOut(auth);
-                appState.currentUser = null;
-                appState.currentWiki = null;
-                appState.currentPage = null;
-                showAlert('Logged out successfully!');
-                updateUIBasedOnUser();
-                showWikiList();
-                toggleUserDropdown();
-            } catch (error) {
-                console.error("Firebase Auth Logout Error:", error.code, error.message);
-                showAlert(`Logout failed: ${error.message}`);
-            }
-        }
-
-        // ----------------------------------------------------
-        // All your other functions (initApp, showWikiList, createWiki, renderWikis, etc.)
-        // These will naturally follow the `performLogin` and `logout` functions
-        // ... (all the rest of your functions) ...
-
-        // ----------------------------------------------------
-        // Your DOMContentLoaded listener and initApp call (at the very bottom)
-        document.addEventListener('DOMContentLoaded', initApp);
-
-        // Add some sample data for demonstration (remove setTimeout later when Firestore is fully active)
-        setTimeout(() => {
-            // ... demo wiki data ...
-        }, 100);
-    </script>
-</body>
-</html>
-
-
-    <style>
-        .markdown-content h1 { @apply text-3xl font-bold mb-4 text-gray-900 dark:text-white; }
-        .markdown-content h2 { @apply text-2xl font-bold mb-3 text-gray-800 dark:text-gray-100; }
-        .markdown-content h3 { @apply text-xl font-bold mb-2 text-gray-700 dark:text-gray-200; }
-        .markdown-content p { @apply mb-4 text-gray-700 dark:text-gray-300 leading-relaxed; }
-        .markdown-content ul { @apply mb-4 ml-6 list-disc text-gray-700 dark:text-gray-300; }
-        .markdown-content ol { @apply mb-4 ml-6 list-decimal text-gray-700 dark:text-gray-300; }
-        .markdown-content li { @apply mb-1; }
-        .markdown-content blockquote { @apply border-l-4 border-primary pl-4 italic text-gray-600 dark:text-gray-400 mb-4; }
-        .markdown-content code { @apply bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm font-mono; }
-        .markdown-content pre { @apply bg-gray-100 dark:bg-gray-800 p-4 rounded mb-4 overflow-x-auto; }
-        .markdown-content pre code { @apply bg-transparent px-0 py-0; }
-        .markdown-content a { @apply text-primary hover:text-primary-dark underline; }
-        .markdown-content table { @apply w-full border-collapse border border-gray-300 dark:border-gray-600 mb-4; }
-        .markdown-content th, .markdown-content td { @apply border border-gray-300 dark:border-gray-600 px-3 py-2 text-left; }
-        .markdown-content th { @apply bg-gray-100 dark:bg-gray-800 font-semibold; }
-    </style>
-</head>
-<body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-white min-h-screen">
-    <!-- Header -->
-    <header class="bg-primary text-white shadow-lg">
-        <div class="container mx-auto px-4 py-4">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-4">
-                    <h1 class="text-2xl font-bold cursor-pointer" onclick="showWikiList()">
-                        <i class="fas fa-book-open mr-2"></i>WikiBuilder
-                    </h1>
-                    <div id="breadcrumb" class="hidden md:flex items-center space-x-2 text-sm opacity-90">
-                        <!-- Breadcrumb will be populated dynamically -->
-                    </div>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <div class="relative">
-                        <input 
-                            type="text" 
-                            id="searchInput" 
-                            placeholder="Search pages..." 
-                            class="bg-white bg-opacity-20 text-white placeholder-white placeholder-opacity-70 px-4 py-2 rounded-lg w-64 text-base focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50"
-                            onkeypress="handleSearchKeypress(event)"
-                        >
-                        <i class="fas fa-search absolute right-3 top-3 text-white opacity-70"></i>
-                    </div>
-                    <div id="userDropdown" class="relative">
-                        <button onclick="toggleUserDropdown()" class="flex items-center space-x-2 bg-white bg-opacity-20 px-3 py-2 rounded-lg hover:bg-opacity-30 transition-colors">
-                            <i class="fas fa-user"></i>
-                            <span id="currentUserName">Guest</span>
-                            <i class="fas fa-chevron-down text-xs"></i>
-                        </button>
-                        <div id="userDropdownMenu" class="hidden absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-2 z-20">
-                            <div id="loginSection">
-                                <a href="#" onclick="showLogin()" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-                                    <i class="fas fa-sign-in-alt mr-2"></i>Login
-                                </a>
-                            </div>
-                            <div id="userSection" class="hidden">
-                                <a href="#" onclick="showUserManagement()" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-                                    <i class="fas fa-users mr-2"></i>Manage Users
-                                </a>
-                                <div class="border-t border-gray-200 dark:border-gray-600 my-1"></div>
-                                <a href="#" onclick="logout()" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-                                    <i class="fas fa-sign-out-alt mr-2"></i>Logout
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                    <button onclick="toggleSidebar()" class="md:hidden">
-                        <i class="fas fa-bars text-xl"></i>
-                    </button>
+<body class="bg-gray-100 text-gray-900 dark:bg-gray-900 dark:text-gray-100 min-h-screen flex flex-col font-sans">
+    <header class="bg-primary dark:bg-primary-dark text-white p-4 shadow-md flex justify-between items-center z-10 relative">
+        <div class="flex items-center">
+            <button id="sidebar-toggle" class="lg:hidden text-white mr-4 focus:outline-none">
+                <i class="fas fa-bars text-xl"></i>
+            </button>
+            <h1 class="text-2xl font-bold tracking-tight">WikiBuilder</h1>
+        </div>
+        <div class="flex items-center space-x-4">
+            <input type="text" id="wiki-search" placeholder="Search wikis..."
+                   class="px-3 py-1 rounded-md bg-white bg-opacity-20 text-white placeholder-white focus:outline-none focus:ring-2 focus:ring-white focus:bg-opacity-30 transition hidden lg:block">
+            <button id="dark-mode-toggle" class="p-2 rounded-full hover:bg-white hover:bg-opacity-20 focus:outline-none transition">
+                <i class="fas fa-moon text-xl dark:hidden"></i>
+                <i class="fas fa-sun text-xl hidden dark:inline-block"></i>
+            </button>
+            <div id="user-info" class="relative group" style="display: none;">
+                <button class="flex items-center space-x-2 p-2 rounded-full hover:bg-white hover:bg-opacity-20 focus:outline-none transition">
+                    <i class="fas fa-user-circle text-2xl"></i>
+                    <span id="user-display-name" class="font-semibold hidden sm:inline"></span>
+                    <i class="fas fa-chevron-down text-xs ml-1"></i>
+                </button>
+                <div class="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 hidden group-hover:block transition-opacity duration-200 ease-in-out opacity-0 group-hover:opacity-100">
+                    <button id="logout-button" class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Logout</button>
                 </div>
             </div>
         </div>
     </header>
 
-    <div class="flex min-h-screen">
-        <!-- Sidebar -->
-        <aside id="sidebar" class="w-64 bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out fixed md:relative z-10 h-full">
-            <div class="p-4">
-                <div class="mb-6">
-                    <button onclick="showWikiList()" class="w-full bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg mb-3 transition-colors">
-                        <i class="fas fa-home mr-2"></i>All Wikis
-                    </button>
-                    <button id="createWikiBtn" onclick="showCreateWiki()" class="w-full bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors">
-                        <i class="fas fa-plus mr-2"></i>Create Wiki
-                    </button>
-                </div>
-
-                <div id="currentWikiInfo" class="hidden">
-                    <h3 class="font-semibold text-gray-700 dark:text-gray-300 mb-3">Current Wiki</h3>
-                    <div class="mb-4 p-3 bg-white dark:bg-gray-700 rounded-lg">
-                        <h4 id="currentWikiName" class="font-medium text-gray-800 dark:text-gray-200"></h4>
-                        <p id="currentWikiDesc" class="text-sm text-gray-600 dark:text-gray-400 mt-1"></p>
-                        <div id="currentUserRole" class="text-xs text-primary font-medium mt-2"></div>
-                    </div>
-                    
-                    <button id="createPageBtn" onclick="showCreatePage()" class="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg mb-4 transition-colors">
-                        <i class="fas fa-file-plus mr-2"></i>New Page
-                    </button>
-
-                    <h4 class="font-semibold text-gray-700 dark:text-gray-300 mb-2">Pages</h4>
-                    <div id="pagesList" class="space-y-1 max-h-64 overflow-y-auto">
-                        <!-- Pages will be populated dynamically -->
-                    </div>
-                </div>
+    <main class="flex flex-1 overflow-hidden">
+        <aside id="sidebar" class="bg-gray-200 dark:bg-gray-800 w-64 flex flex-col p-4 shadow-lg overflow-y-auto transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out z-20 absolute lg:relative lg:!block">
+            <div class="flex justify-between items-center mb-4 lg:hidden">
+                <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">Wikis</h2>
+                <button id="close-sidebar" class="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
             </div>
+            <button id="create-wiki-button" class="bg-primary hover:bg-primary-dark text-white font-bold py-2 px-4 rounded-md mb-4 flex items-center justify-center space-x-2 transition">
+                <i class="fas fa-plus"></i>
+                <span>New Wiki</span>
+            </button>
+            <div class="mb-4 lg:hidden">
+                <input type="text" id="mobile-wiki-search" placeholder="Search wikis..."
+                       class="px-3 py-2 w-full rounded-md bg-gray-300 dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary">
+            </div>
+            <ul id="wiki-list" class="flex-1 space-y-2">
+                <li class="text-gray-600 dark:text-gray-400">No wikis available.</li>
+            </ul>
         </aside>
 
-        <!-- Main Content -->
-        <main class="flex-1 p-6">
-            <!-- Login View -->
-            <div id="loginView" class="hidden max-w-md mx-auto">
-                <h2 class="text-3xl font-bold text-gray-900 dark:text-white mb-6 text-center">Login</h2>
-                <form onsubmit="performLogin(event)" class="space-y-6">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Username</label>
-                        <input type="text" id="loginUsername" required class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary dark:bg-gray-800 text-base">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password</label>
-                        <input type="password" id="loginPassword" required class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary dark:bg-gray-800 text-base">
-                    </div>
-                    <div class="flex space-x-4">
-                        <button type="submit" class="flex-1 bg-primary hover:bg-primary-dark text-white px-6 py-3 rounded-lg transition-colors">
-                            Login
-                        </button>
-                        <button type="button" onclick="showWikiList()" class="flex-1 bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-lg transition-colors">
-                            Cancel
-                        </button>
-                    </div>
-                </form>
-                <p class="mt-4 text-sm text-gray-600 dark:text-gray-400 text-center">
-                    Login
-                </p>
-            </div>
-
-            <!-- User Management View -->
-            <div id="userManagementView" class="hidden max-w-4xl mx-auto">
-                <div class="mb-6">
-                    <h2 class="text-3xl font-bold text-gray-900 dark:text-white mb-4">User Management</h2>
-                    <p class="text-gray-600 dark:text-gray-400">Manage user roles and permissions for this wiki.</p>
+        <section id="app-section" class="flex-1 flex flex-col overflow-hidden hidden">
+            <div id="wiki-header" class="bg-white dark:bg-gray-800 p-4 border-b border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between z-0">
+                <div>
+                    <h2 id="wiki-title" class="text-xl font-bold">Select a Wiki</h2>
+                    <p id="wiki-description" class="text-gray-600 dark:text-gray-400 text-sm"></p>
                 </div>
-
-                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border border-gray-200 dark:border-gray-700">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Wiki Users</h3>
-                        <button onclick="showAddUser()" class="bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg transition-colors">
-                            <i class="fas fa-user-plus mr-2"></i>Add User
-                        </button>
-                    </div>
-                    <div id="usersList" class="space-y-3">
-                        <!-- Users list will be populated here -->
-                    </div>
-                </div>
-
-                <div id="addUserForm" class="hidden mt-6 bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border border-gray-200 dark:border-gray-700">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add User to Wiki</h3>
-                    <form onsubmit="addUserToWiki(event)" class="space-y-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Username</label>
-                                <input type="text" id="addUserUsername" required class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary dark:bg-gray-800 text-base">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Role</label>
-                                <select id="addUserRole" class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary dark:bg-gray-800 text-base">
-                                    <option value="viewer">Viewer</option>
-                                    <option value="contributor">Contributor</option>
-                                    <option value="editor">Editor</option>
-                                    <option value="admin">Admin</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="flex space-x-4">
-                            <button type="submit" class="bg-primary hover:bg-primary-dark text-white px-6 py-2 rounded-lg transition-colors">
-                                Add User
-                            </button>
-                            <button type="button" onclick="hideAddUser()" class="bg-gray-500 hover:bg-gray-600 text-white px-6 py-2 rounded-lg transition-colors">
-                                Cancel
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
-            <!-- Wiki List View -->
-            <div id="wikiListView" class="max-w-6xl mx-auto">
-                <div class="mb-8">
-                    <h2 class="text-3xl font-bold text-gray-900 dark:text-white mb-4">Your Wikis</h2>
-                    <p class="text-gray-600 dark:text-gray-400">Create and manage your collaborative wikis. Each wiki can contain multiple pages with rich content.</p>
-                </div>
-
-                <div id="wikiGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <!-- Wikis will be populated here -->
-                </div>
-
-                <div id="emptyWikiState" class="text-center py-16">
-                    <i class="fas fa-book-open text-6xl text-gray-300 dark:text-gray-600 mb-4"></i>
-                    <h3 class="text-xl font-semibold text-gray-600 dark:text-gray-400 mb-2">No wikis yet</h3>
-                    <p class="text-gray-500 dark:text-gray-500 mb-6">Create your first wiki to get started</p>
-                    <button onclick="showCreateWiki()" class="bg-primary hover:bg-primary-dark text-white px-6 py-3 rounded-lg transition-colors">
-                        <i class="fas fa-plus mr-2"></i>Create Your First Wiki
+                <div class="flex items-center space-x-2">
+                    <button id="add-page-button" class="bg-primary hover:bg-primary-dark text-white py-1 px-3 rounded-md text-sm transition hidden">
+                        <i class="fas fa-plus mr-1"></i>New Page
+                    </button>
+                    <button id="manage-users-button" class="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md text-sm transition hidden">
+                        <i class="fas fa-users mr-1"></i>Manage Users
+                    </button>
+                    <button id="delete-wiki-button" class="bg-red-500 hover:bg-red-600 text-white py-1 px-3 rounded-md text-sm transition hidden">
+                        <i class="fas fa-trash mr-1"></i>Delete Wiki
                     </button>
                 </div>
             </div>
 
-            <!-- Create Wiki View -->
-            <div id="createWikiView" class="hidden max-w-2xl mx-auto">
-                <h2 class="text-3xl font-bold text-gray-900 dark:text-white mb-6">Create New Wiki</h2>
-                <form onsubmit="createWiki(event)" class="space-y-6">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Wiki Name</label>
-                        <input type="text" id="wikiName" required class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary dark:bg-gray-800 text-base">
+            <div class="flex flex-1 overflow-hidden">
+                <div id="page-list-sidebar" class="w-64 bg-gray-100 dark:bg-gray-700 p-4 border-r border-gray-200 dark:border-gray-600 overflow-y-auto hidden">
+                    <h3 class="text-lg font-semibold mb-3">Pages</h3>
+                    <ul id="pages-list" class="space-y-2">
+                        <li class="text-gray-600 dark:text-gray-400">No pages for this wiki.</li>
+                    </ul>
+                </div>
+
+                <div id="page-content-area" class="flex-1 p-6 overflow-y-auto">
+                    <div id="page-display" class="prose dark:prose-invert max-w-none">
+                        <p class="text-gray-600 dark:text-gray-400">Select a page from the left to view its content, or create a new page.</p>
                     </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Description</label>
-                        <textarea id="wikiDescription" rows="4" class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary dark:bg-gray-800 text-base" placeholder="Describe what this wiki is about..."></textarea>
+                    
+                    <div id="page-edit-form-container" class="mt-8 p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md hidden">
+                        <h3 class="text-xl font-semibold mb-4" id="edit-form-title">Edit Page</h3>
+                        <form id="page-form">
+                            <div class="mb-4">
+                                <label for="page-title-input" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Page Title</label>
+                                <input type="text" id="page-title-input" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary">
+                            </div>
+                            <div class="mb-4">
+                                <label for="page-content-input" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Content (Markdown)</label>
+                                <textarea id="page-content-input" rows="15" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary"></textarea>
+                            </div>
+                            <div class="flex justify-end space-x-2">
+                                <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-bold py-2 px-4 rounded-md transition">Save Page</button>
+                                <button type="button" id="cancel-edit-page-button" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md transition">Cancel</button>
+                                <button type="button" id="delete-page-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md transition">Delete Page</button>
+                            </div>
+                        </form>
                     </div>
-                    <div class="flex space-x-4">
-                        <button type="submit" class="bg-primary hover:bg-primary-dark text-white px-6 py-3 rounded-lg transition-colors">
-                            <i class="fas fa-plus mr-2"></i>Create Wiki
-                        </button>
-                        <button type="button" onclick="showWikiList()" class="bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-lg transition-colors">
-                            Cancel
-                        </button>
-                    </div>
-                </form>
+                </div>
             </div>
+        </section>
 
-            <!-- Wiki View -->
-            <div id="wikiView" class="hidden">
-                <div class="mb-6">
-                    <h2 id="wikiTitle" class="text-3xl font-bold text-gray-900 dark:text-white mb-2"></h2>
-                    <p id="wikiViewDescription" class="text-gray-600 dark:text-gray-400 mb-4"></p>
-                    <div id="wikiActions" class="flex flex-wrap gap-3">
-                        <button id="newPageBtn" onclick="showCreatePage()" class="bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg transition-colors">
-                            <i class="fas fa-file-plus mr-2"></i>New Page
-                        </button>
-                        <button id="editWikiBtn" onclick="editWiki()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors">
-                            <i class="fas fa-edit mr-2"></i>Edit Wiki
-                        </button>
-                        <button id="manageUsersBtn" onclick="showUserManagement()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition-colors">
-                            <i class="fas fa-users mr-2"></i>Manage Users
-                        </button>
-                        <button id="deleteWikiBtn" onclick="deleteWiki()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors">
-                            <i class="fas fa-trash mr-2"></i>Delete Wiki
-                        </button>
+        <section id="auth-section" class="flex-1 flex flex-col items-center justify-center p-6 bg-gray-50 dark:bg-gray-900">
+            <div class="w-full max-w-md bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
+                <h2 id="auth-title" class="text-3xl font-bold text-center mb-6 text-gray-800 dark:text-gray-100">Login</h2>
+                <form id="auth-form" class="space-y-4">
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
+                        <input type="email" id="email" required
+                               class="mt-1 block w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary">
                     </div>
-                </div>
-
-                <div id="wikiPagesGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <!-- Pages will be populated here -->
-                </div>
-
-                <div id="emptyPagesState" class="text-center py-16">
-                    <i class="fas fa-file-alt text-6xl text-gray-300 dark:text-gray-600 mb-4"></i>
-                    <h3 class="text-xl font-semibold text-gray-600 dark:text-gray-400 mb-2">No pages yet</h3>
-                    <p class="text-gray-500 dark:text-gray-500 mb-6">Create your first page to start building content</p>
-                    <button onclick="showCreatePage()" class="bg-primary hover:bg-primary-dark text-white px-6 py-3 rounded-lg transition-colors">
-                        <i class="fas fa-file-plus mr-2"></i>Create First Page
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Password</label>
+                        <input type="password" id="password" required
+                               class="mt-1 block w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary">
+                    </div>
+                    <div id="confirm-password-group" class="hidden">
+                        <label for="confirm-password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Confirm Password</label>
+                        <input type="password" id="confirm-password"
+                               class="mt-1 block w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary">
+                    </div>
+                    <button type="submit" id="auth-submit-button"
+                            class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-primary hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition">
+                        Login
+                    </button>
+                </form>
+                <div class="mt-6 text-center">
+                    <button id="toggle-auth-mode" class="text-primary hover:text-primary-dark text-sm focus:outline-none">
+                        Don't have an account? Sign Up
+                    </button>
+                    <button id="forgot-password-button" class="block mt-2 text-primary hover:text-primary-dark text-sm focus:outline-none">
+                        Forgot Password?
                     </button>
                 </div>
             </div>
+        </section>
+    </main>
 
-            <!-- Create/Edit Page View -->
-            <div id="editPageView" class="hidden">
-                <div class="mb-6">
-                    <h2 id="editPageTitle" class="text-3xl font-bold text-gray-900 dark:text-white mb-4">Create New Page</h2>
+    <div id="createWikiModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h2 class="text-2xl font-bold mb-4">Create New Wiki</h2>
+            <form id="create-wiki-form">
+                <div class="mb-4">
+                    <label for="new-wiki-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Wiki Name</label>
+                    <input type="text" id="new-wiki-name" required class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100">
                 </div>
-
-                <form onsubmit="savePage(event)" class="space-y-6">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Page Title</label>
-                        <input type="text" id="pageTitle" required class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary dark:bg-gray-800 text-base">
-                    </div>
-
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Content (Markdown)</label>
-                            <textarea id="pageContentEditor" rows="20" class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary dark:bg-gray-800 font-mono text-base" placeholder="Write your content in Markdown..."></textarea>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Preview</label>
-                            <div id="pagePreview" class="border border-gray-300 dark:border-gray-600 rounded-lg p-4 min-h-96 bg-gray-50 dark:bg-gray-800 markdown-content overflow-y-auto" style="height: 500px;">
-                                <p class="text-gray-500 dark:text-gray-400 italic">Preview will appear here as you type...</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="flex space-x-4">
-                        <button type="submit" class="bg-primary hover:bg-primary-dark text-white px-6 py-3 rounded-lg transition-colors">
-                            <i class="fas fa-save mr-2"></i>Save Page
-                        </button>
-                        <button type="button" onclick="cancelEdit()" class="bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-lg transition-colors">
-                            Cancel
-                        </button>
-                    </div>
-                </form>
-            </div>
-
-            <!-- Page View -->
-            <div id="pageView" class="hidden">
-                <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                        <h1 id="pageViewTitle" class="text-4xl font-bold text-gray-900 dark:text-white mb-2"></h1>
-                        <p class="text-gray-600 dark:text-gray-400">
-                            Last updated: <span id="pageLastUpdated"></span>
-                        </p>
-                    </div>
-                    <div id="pageActions" class="flex gap-3">
-                        <button id="editPageBtn" onclick="editCurrentPage()" class="bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg transition-colors">
-                            <i class="fas fa-edit mr-2"></i>Edit
-                        </button>
-                        <button id="deletePageBtn" onclick="deleteCurrentPage()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors">
-                            <i class="fas fa-trash mr-2"></i>Delete
-                        </button>
-                    </div>
+                <div class="mb-4">
+                    <label for="new-wiki-description" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                    <textarea id="new-wiki-description" rows="3" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100"></textarea>
                 </div>
-
-                <div id="pageViewContent" class="prose prose-lg max-w-none markdown-content">
-                    <!-- Page content will be rendered here -->
+                <div class="mb-4">
+                    <label for="new-wiki-icon" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Icon (Emoji)</label>
+                    <input type="text" id="new-wiki-icon" placeholder="📚" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100">
                 </div>
-            </div>
-
-            <!-- Search Results View -->
-            <div id="searchView" class="hidden">
-                <div class="mb-6">
-                    <h2 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">Search Results</h2>
-                    <p id="searchQuery" class="text-gray-600 dark:text-gray-400"></p>
+                <div class="mb-4 flex items-center">
+                    <input type="checkbox" id="new-wiki-is-public" class="mr-2 h-4 w-4 text-primary rounded border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 focus:ring-primary">
+                    <label for="new-wiki-is-public" class="text-sm font-medium text-gray-700 dark:text-gray-300">Public Wiki</label>
                 </div>
-                <div id="searchResults" class="space-y-4">
-                    <!-- Search results will be populated here -->
+                <div class="flex justify-end space-x-2">
+                    <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-bold py-2 px-4 rounded-md">Create Wiki</button>
+                    <button type="button" onclick="hideModal('createWikiModal')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md">Cancel</button>
                 </div>
-            </div>
-        </main>
+            </form>
+        </div>
     </div>
 
-    <!-- Custom Modal for Confirmations -->
-    <div id="confirmModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm w-full mx-4">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4" id="confirmTitle"></h3>
-            <p class="text-gray-700 dark:text-gray-300 mb-6" id="confirmMessage"></p>
-            <div class="flex justify-end space-x-3">
-                <button id="confirmCancel" class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">Cancel</button>
-                <button id="confirmOk" class="px-4 py-2 bg-red-500 text-white hover:bg-red-600 rounded">Confirm</button>
+    <div id="manageUsersModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h2 class="text-2xl font-bold mb-4">Manage Wiki Users</h2>
+            <div id="user-list-container" class="mb-4 max-h-60 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-md p-2">
+                <p id="no-users-message" class="text-gray-600 dark:text-gray-400">No users added to this wiki yet.</p>
+            </div>
+            <form id="add-user-form" class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 mb-4">
+                <input type="email" id="user-email-input" placeholder="User Email" class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+                <select id="user-role-select" class="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md">Add User</button>
+            </form>
+            <div class="flex justify-end">
+                <button type="button" onclick="hideModal('manageUsersModal')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md">Done</button>
             </div>
         </div>
     </div>
 
+    <div id="message-container" class="fixed bottom-4 right-4 z-50">
+        </div>
+
     <script>
-        // Dark mode setup
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            document.documentElement.classList.add('dark');
-        }
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
-            if (event.matches) {
-                document.documentElement.classList.add('dark');
-            } else {
-                document.documentElement.classList.remove('dark');
-            }
+        // Firebase setup
+        const firebaseConfig = {
+            // Your Firebase project configuration
+            // Replace with your actual Firebase config from your project settings
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        // Initialize Firebase
+        const app = firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore(); // Get Firestore instance
+
+        // Initialize Marked for Markdown parsing
+        marked.setOptions({
+            gfm: true, // Use GitHub flavored markdown
+            breaks: true // Enable GFM line breaks
         });
 
-        // App State
-        let appState = {
-            wikis: [],
-            currentWiki: null,
-            currentPage: null,
-            editingPage: null,
+        // appState and other global variables
+        const appState = {
             currentUser: null,
-            users: []
+            wikis: [], // This will now be populated from Firestore
+            users: [
+                // Example demo users (can be managed in Firestore later if needed)
+                { id: 'admin', email: 'admin@example.com', name: 'Admin User' },
+                { id: 'editor', email: 'editor@example.com', name: 'Editor User' },
+                { id: 'viewer', email: 'viewer@example.com', name: 'Viewer User' }
+            ],
+            currentPage: null,
+            currentWiki: null,
+            searchTerm: '',
+            sidebarOpen: false, // Start sidebar closed for mobile
+            isDarkMode: window.matchMedia('(prefers-color-scheme: dark)').matches // Initialize based on system preference
         };
 
-        // User Roles and Permissions
-        const ROLES = {
-            OWNER: 'owner',
-            ADMIN: 'admin', 
-            EDITOR: 'editor',
-            CONTRIBUTOR: 'contributor',
-            VIEWER: 'viewer'
-        };
-
-        const PERMISSIONS = {
-            // Wiki-level permissions
-            DELETE_WIKI: 'delete_wiki',
-            EDIT_WIKI: 'edit_wiki',
-            MANAGE_USERS: 'manage_users',
-            
-            // Page-level permissions
-            CREATE_PAGE: 'create_page',
-            EDIT_PAGE: 'edit_page',
-            DELETE_PAGE: 'delete_page',
-            VIEW_PAGE: 'view_page'
-        };
-
-        const ROLE_PERMISSIONS = {
-            [ROLES.OWNER]: [
-                PERMISSIONS.DELETE_WIKI, PERMISSIONS.EDIT_WIKI, PERMISSIONS.MANAGE_USERS,
-                PERMISSIONS.CREATE_PAGE, PERMISSIONS.EDIT_PAGE, PERMISSIONS.DELETE_PAGE, PERMISSIONS.VIEW_PAGE
-            ],
-            [ROLES.ADMIN]: [
-                PERMISSIONS.EDIT_WIKI, PERMISSIONS.MANAGE_USERS,
-                PERMISSIONS.CREATE_PAGE, PERMISSIONS.EDIT_PAGE, PERMISSIONS.DELETE_PAGE, PERMISSIONS.VIEW_PAGE
-            ],
-            [ROLES.EDITOR]: [
-                PERMISSIONS.CREATE_PAGE, PERMISSIONS.EDIT_PAGE, PERMISSIONS.DELETE_PAGE, PERMISSIONS.VIEW_PAGE
-            ],
-            [ROLES.CONTRIBUTOR]: [
-                PERMISSIONS.CREATE_PAGE, PERMISSIONS.EDIT_PAGE, PERMISSIONS.VIEW_PAGE
-            ],
-            [ROLES.VIEWER]: [
-                PERMISSIONS.VIEW_PAGE
-            ]
-        };
-
-        // Permission checking functions
-        function hasPermission(permission, wikiId = null) {
-            if (!appState.currentUser) return false;
-            
-            if (wikiId && appState.currentUser.wikiRoles && appState.currentUser.wikiRoles[wikiId]) {
-                const role = appState.currentUser.wikiRoles[wikiId];
-                return ROLE_PERMISSIONS[role] && ROLE_PERMISSIONS[role].includes(permission);
-            }
-            
-            return false;
+        // --- Utility Functions ---
+        function updateAppState(newValues) {
+            Object.assign(appState, newValues);
+            renderApp(); // This function should re-render UI based on appState
         }
 
-        function getUserRole(wikiId) {
-            if (!appState.currentUser || !appState.currentUser.wikiRoles) return null;
-            return appState.currentUser.wikiRoles[wikiId] || null;
+        function displayMessage(message, type = 'info', duration = 3000) {
+            const container = document.getElementById('message-container');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `p-3 mb-2 rounded-md shadow-md text-white ${
+                type === 'success' ? 'bg-green-500' :
+                type === 'error' ? 'bg-red-500' :
+                'bg-blue-500'
+            }`;
+            messageDiv.textContent = message;
+            container.appendChild(messageDiv);
+
+            setTimeout(() => {
+                messageDiv.remove();
+            }, duration);
         }
 
-        function canAccessWiki(wiki) {
-            if (!appState.currentUser) return false;
-            return getUserRole(wiki.id) !== null;
+        function showModal(modalId) {
+            document.getElementById(modalId).classList.remove('hidden');
         }
 
-        // Initialize app
-        function initApp() {
-            initDemoUsers();
-            showWikiList();
-            updateSidebar();
-            updateUIBasedOnUser();
+        function hideModal(modalId) {
+            document.getElementById(modalId).classList.add('hidden');
         }
 
-        function initDemoUsers() {
-            appState.users = [
-                {
-                    id: 'admin',
-                    username: 'admin',
-                    password: 'admin',
-                    wikiRoles: {}
-                },
-                {
-                    id: 'editor',
-                    username: 'editor', 
-                    password: 'editor',
-                    wikiRoles: {}
-                },
-                {
-                    id: 'viewer',
-                    username: 'viewer',
-                    password: 'viewer',
-                    wikiRoles: {}
-                }
-            ];
-        }
-
-        // User Management
-        function showLogin() {
-            hideAllViews();
-            document.getElementById('loginView').classList.remove('hidden');
-            document.getElementById('loginUsername').value = '';
-            document.getElementById('loginPassword').value = '';
-            updateBreadcrumb([{text: 'Login'}]);
-            toggleUserDropdown();
-        }
-
-        function performLogin(event) {
-            event.preventDefault();
-            const username = document.getElementById('loginUsername').value;
-            const password = document.getElementById('loginPassword').value;
-            
-            const user = appState.users.find(u => u.username === username && u.password === password);
-            if (user) {
-                appState.currentUser = user;
-                updateUIBasedOnUser();
-                showWikiList();
-            } else {
-                showAlert('Invalid username or password');
-            }
-        }
-
-        function logout() {
-            appState.currentUser = null;
-            appState.currentWiki = null;
-            appState.currentPage = null;
-            updateUIBasedOnUser();
-            showWikiList();
-            toggleUserDropdown();
-        }
-
-        function toggleUserDropdown() {
-            const menu = document.getElementById('userDropdownMenu');
-            menu.classList.toggle('hidden');
-        }
-
-        function updateUIBasedOnUser() {
-            const currentUserName = document.getElementById('currentUserName');
-            const loginSection = document.getElementById('loginSection');
-            const userSection = document.getElementById('userSection');
-            
-            if (appState.currentUser) {
-                currentUserName.textContent = appState.currentUser.username;
-                loginSection.classList.add('hidden');
-                userSection.classList.remove('hidden');
-            } else {
-                currentUserName.textContent = 'Guest';
-                loginSection.classList.remove('hidden');
-                userSection.classList.add('hidden');
-            }
-            
-            updateButtonsBasedOnPermissions();
-        }
-
-        function updateButtonsBasedOnPermissions() {
-            // Update UI elements based on current user permissions
-            const wikiId = appState.currentWiki?.id;
-            
-            // Create wiki button
-            const createWikiBtn = document.getElementById('createWikiBtn');
-            if (createWikiBtn) {
-                createWikiBtn.style.display = appState.currentUser ? 'block' : 'none';
-            }
-            
-            if (wikiId) {
-                // Wiki-level buttons
-                const editWikiBtn = document.getElementById('editWikiBtn');
-                const deleteWikiBtn = document.getElementById('deleteWikiBtn');
-                const manageUsersBtn = document.getElementById('manageUsersBtn');
-                const createPageBtn = document.getElementById('createPageBtn');
-                const newPageBtn = document.getElementById('newPageBtn');
-                
-                if (editWikiBtn) editWikiBtn.style.display = hasPermission(PERMISSIONS.EDIT_WIKI, wikiId) ? 'inline-block' : 'none';
-                if (deleteWikiBtn) deleteWikiBtn.style.display = hasPermission(PERMISSIONS.DELETE_WIKI, wikiId) ? 'inline-block' : 'none';
-                if (manageUsersBtn) manageUsersBtn.style.display = hasPermission(PERMISSIONS.MANAGE_USERS, wikiId) ? 'inline-block' : 'none';
-                if (createPageBtn) createPageBtn.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, wikiId) ? 'block' : 'none';
-                if (newPageBtn) newPageBtn.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, wikiId) ? 'inline-block' : 'none';
-                
-                // Page-level buttons
-                const editPageBtn = document.getElementById('editPageBtn');
-                const deletePageBtn = document.getElementById('deletePageBtn');
-                
-                if (editPageBtn) editPageBtn.style.display = hasPermission(PERMISSIONS.EDIT_PAGE, wikiId) ? 'inline-block' : 'none';
-                if (deletePageBtn) deletePageBtn.style.display = hasPermission(PERMISSIONS.DELETE_PAGE, wikiId) ? 'inline-block' : 'none';
-                
-                // Update current user role display
-                const currentUserRole = document.getElementById('currentUserRole');
-                if (currentUserRole) {
-                    const role = getUserRole(wikiId);
-                    currentUserRole.textContent = role ? `Role: ${role.charAt(0).toUpperCase() + role.slice(1)}` : '';
-                }
-            }
-        }
-
-        // User Management UI
-        function showUserManagement() {
-            if (!appState.currentWiki || !hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki.id)) {
-                showAlert('You do not have permission to manage users for this wiki.');
-                return;
-            }
-            
-            hideAllViews();
-            document.getElementById('userManagementView').classList.remove('hidden');
-            updateBreadcrumb([
-                {text: appState.currentWiki.name, action: () => showWiki(appState.currentWiki.id)},
-                {text: 'Manage Users'}
-            ]);
-            renderUsersList();
-            toggleUserDropdown();
-        }
-
-        function renderUsersList() {
-            const usersList = document.getElementById('usersList');
-            const wikiUsers = appState.currentWiki.users || [];
-            
-            if (wikiUsers.length === 0) {
-                usersList.innerHTML = '<p class="text-gray-500 dark:text-gray-400 italic">No users assigned to this wiki yet.</p>';
-                return;
-            }
-            
-            usersList.innerHTML = wikiUsers.map(wikiUser => {
-                const user = appState.users.find(u => u.id === wikiUser.userId);
-                if (!user) return '';
-                
-                return `
-                    <div class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                        <div class="flex items-center space-x-4">
-                            <div class="w-10 h-10 bg-primary text-white rounded-full flex items-center justify-center">
-                                <i class="fas fa-user"></i>
-                            </div>
-                            <div>
-                                <h4 class="font-medium text-gray-900 dark:text-white">${user.username}</h4>
-                                <p class="text-sm text-gray-600 dark:text-gray-400">Role: ${wikiUser.role.charAt(0).toUpperCase() + wikiUser.role.slice(1)}</p>
-                            </div>
-                        </div>
-                        <div class="flex items-center space-x-2">
-                            <select onchange="changeUserRole('${user.id}', this.value)" class="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm dark:bg-gray-800">
-                                <option value="viewer" ${wikiUser.role === 'viewer' ? 'selected' : ''}>Viewer</option>
-                                <option value="contributor" ${wikiUser.role === 'contributor' ? 'selected' : ''}>Contributor</option>
-                                <option value="editor" ${wikiUser.role === 'editor' ? 'selected' : ''}>Editor</option>
-                                <option value="admin" ${wikiUser.role === 'admin' ? 'selected' : ''}>Admin</option>
-                                ${getUserRole(appState.currentWiki.id) === 'owner' ? `<option value="owner" ${wikiUser.role === 'owner' ? 'selected' : ''}>Owner</option>` : ''}
-                            </select>
-                            <button onclick="removeUserFromWiki('${user.id}')" class="text-red-500 hover:text-red-700 p-1">
-                                <i class="fas fa-trash text-sm"></i>
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        function showAddUser() {
-            document.getElementById('addUserForm').classList.remove('hidden');
-        }
-
-        function hideAddUser() {
-            document.getElementById('addUserForm').classList.add('hidden');
-            document.getElementById('addUserUsername').value = '';
-            document.getElementById('addUserRole').value = 'viewer';
-        }
-
-        function addUserToWiki(event) {
-            event.preventDefault();
-            const username = document.getElementById('addUserUsername').value.trim();
-            const role = document.getElementById('addUserRole').value;
-            
-            const user = appState.users.find(u => u.username === username);
-            if (!user) {
-                showAlert('User not found');
-                return;
-            }
-            
-            if (!appState.currentWiki.users) {
-                appState.currentWiki.users = [];
-            }
-            
-            const existingUser = appState.currentWiki.users.find(u => u.userId === user.id);
-            if (existingUser) {
-                showAlert('User is already a member of this wiki');
-                return;
-            }
-            
-            appState.currentWiki.users.push({
-                userId: user.id,
-                role: role,
-                addedAt: new Date().toISOString()
-            });
-            
-            // Update user's wiki roles
-            if (!user.wikiRoles) user.wikiRoles = {};
-            user.wikiRoles[appState.currentWiki.id] = role;
-            
-            renderUsersList();
-            hideAddUser();
-        }
-
-        function changeUserRole(userId, newRole) {
-            const wikiUser = appState.currentWiki.users.find(u => u.userId === userId);
-            const user = appState.users.find(u => u.id === userId);
-            
-            if (wikiUser && user) {
-                wikiUser.role = newRole;
-                if (!user.wikiRoles) user.wikiRoles = {};
-                user.wikiRoles[appState.currentWiki.id] = newRole;
-                
-                // Update current user permissions if they changed their own role
-                if (appState.currentUser && appState.currentUser.id === userId) {
-                    updateButtonsBasedOnPermissions();
-                }
-            }
-        }
-
-        function removeUserFromWiki(userId) {
-            showConfirmDialog(
-                'Remove User',
-                'Are you sure you want to remove this user from the wiki?',
-                () => {
-                    appState.currentWiki.users = appState.currentWiki.users.filter(u => u.userId !== userId);
-                    const user = appState.users.find(u => u.id === userId);
-                    if (user && user.wikiRoles) {
-                        delete user.wikiRoles[appState.currentWiki.id];
-                    }
-                    renderUsersList();
-                }
-            );
-        }
-
-        // Custom confirmation dialog
-        function showConfirmDialog(title, message, onConfirm) {
-            const modal = document.getElementById('confirmModal');
-            document.getElementById('confirmTitle').textContent = title;
-            document.getElementById('confirmMessage').textContent = message;
-            
-            const cancelBtn = document.getElementById('confirmCancel');
-            const okBtn = document.getElementById('confirmOk');
-            
-            const hideModal = () => modal.classList.add('hidden');
-            
-            cancelBtn.onclick = hideModal;
-            okBtn.onclick = () => {
-                hideModal();
-                onConfirm();
-            };
-            
-            modal.classList.remove('hidden');
-        }
-
-        function showAlert(message) {
-            const modal = document.createElement('div');
-            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
-            modal.innerHTML = `
-                <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-sm w-full mx-4">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Notice</h3>
-                    <p class="text-gray-700 dark:text-gray-300 mb-6">${message}</p>
-                    <div class="flex justify-end">
-                        <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 bg-primary text-white hover:bg-primary-dark rounded">OK</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-        }
-
-        // View Management
-        function hideAllViews() {
-            document.querySelectorAll('#wikiListView, #createWikiView, #wikiView, #editPageView, #pageView, #searchView, #loginView, #userManagementView').forEach(view => {
-                view.classList.add('hidden');
-            });
-        }
-
-        function showWikiList() {
-            hideAllViews();
-            document.getElementById('wikiListView').classList.remove('hidden');
-            appState.currentWiki = null;
-            appState.currentPage = null;
-            updateBreadcrumb([]);
-            updateSidebar();
-            renderWikis();
-            updateButtonsBasedOnPermissions();
-        }
-
-        function showCreateWiki() {
-            if (!appState.currentUser) {
-                showAlert('Please login to create a wiki.');
-                return;
-            }
-            
-            hideAllViews();
-            document.getElementById('createWikiView').classList.remove('hidden');
-            document.getElementById('wikiName').value = '';
-            document.getElementById('wikiDescription').value = '';
-            updateBreadcrumb([{text: 'Create Wiki'}]);
-        }
-
-        function showWiki(wikiId) {
-            const wiki = appState.wikis.find(w => w.id === wikiId);
-            if (!wiki || !canAccessWiki(wiki)) {
-                showAlert('You do not have access to this wiki.');
-                return;
-            }
-
-            hideAllViews();
-            document.getElementById('wikiView').classList.remove('hidden');
-            appState.currentWiki = wiki;
-            appState.currentPage = null;
-            
-            document.getElementById('wikiTitle').textContent = wiki.name;
-            document.getElementById('wikiViewDescription').textContent = wiki.description;
-            
-            updateBreadcrumb([{text: wiki.name}]);
-            updateSidebar();
-            updateButtonsBasedOnPermissions();
-            renderWikiPages();
-        }
-
-        function showCreatePage() {
-            if (!appState.currentWiki || !hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id)) {
-                showAlert('You do not have permission to create pages in this wiki.');
-                return;
-            }
-            
-            hideAllViews();
-            document.getElementById('editPageView').classList.remove('hidden');
-            document.getElementById('editPageTitle').textContent = 'Create New Page';
-            
-            document.getElementById('pageTitle').value = '';
-            document.getElementById('pageContentEditor').value = '';
-            document.getElementById('pagePreview').innerHTML = '<p class="text-gray-500 dark:text-gray-400 italic">Preview will appear here as you type...</p>';
-            
-            appState.editingPage = null;
-            updateBreadcrumb([
-                {text: appState.currentWiki.name, action: () => showWiki(appState.currentWiki.id)},
-                {text: 'New Page'}
-            ]);
-        }
-
-        function showPage(pageId) {
-            const wiki = appState.currentWiki;
-            if (!wiki || !hasPermission(PERMISSIONS.VIEW_PAGE, wiki.id)) {
-                showAlert('You do not have permission to view pages in this wiki.');
-                return;
-            }
-            
-            const page = wiki.pages.find(p => p.id === pageId);
-            if (!page) return;
-
-            hideAllViews();
-            document.getElementById('pageView').classList.remove('hidden');
-            appState.currentPage = page;
-            
-            document.getElementById('pageViewTitle').textContent = page.title;
-            document.getElementById('pageLastUpdated').textContent = new Date(page.lastUpdated).toLocaleString();
-            document.getElementById('pageViewContent').innerHTML = marked.parse(page.content);
-            
-            updateBreadcrumb([
-                {text: wiki.name, action: () => showWiki(wiki.id)},
-                {text: page.title}
-            ]);
-            updateButtonsBasedOnPermissions();
-        }
-
-        function editCurrentPage() {
-            if (!appState.currentPage || !hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id)) {
-                showAlert('You do not have permission to edit pages in this wiki.');
-                return;
-            }
-            
-            hideAllViews();
-            document.getElementById('editPageView').classList.remove('hidden');
-            document.getElementById('editPageTitle').textContent = 'Edit Page';
-            
-            document.getElementById('pageTitle').value = appState.currentPage.title;
-            document.getElementById('pageContentEditor').value = appState.currentPage.content;
-            updatePreview();
-            
-            appState.editingPage = appState.currentPage;
-            updateBreadcrumb([
-                {text: appState.currentWiki.name, action: () => showWiki(appState.currentWiki.id)},
-                {text: appState.currentPage.title, action: () => showPage(appState.currentPage.id)},
-                {text: 'Edit'}
-            ]);
-        }
-
-        function cancelEdit() {
-            if (appState.editingPage) {
-                showPage(appState.editingPage.id);
-            } else {
-                showWiki(appState.currentWiki.id);
-            }
-        }
-
-        // Wiki Management
-        function createWiki(event) {
-            event.preventDefault();
-            
-            if (!appState.currentUser) {
-                showAlert('Please login to create a wiki.');
-                return;
-            }
-            
-            const name = document.getElementById('wikiName').value.trim();
-            const description = document.getElementById('wikiDescription').value.trim();
-            
-            if (!name) return;
-            
-            const wiki = {
-                id: Date.now().toString(),
-                name,
-                description,
-                pages: [],
-                users: [{
-                    userId: appState.currentUser.id,
-                    role: ROLES.OWNER,
-                    addedAt: new Date().toISOString()
-                }],
-                created: new Date().toISOString()
-            };
-            
-            // Update user's wiki roles
-            if (!appState.currentUser.wikiRoles) appState.currentUser.wikiRoles = {};
-            appState.currentUser.wikiRoles[wiki.id] = ROLES.OWNER;
-            
-            appState.wikis.push(wiki);
-            showWiki(wiki.id);
-        }
-
-        function editWiki() {
-            if (!appState.currentWiki || !hasPermission(PERMISSIONS.EDIT_WIKI, appState.currentWiki.id)) {
-                showAlert('You do not have permission to edit this wiki.');
-                return;
-            }
-            
-            hideAllViews();
-            document.getElementById('createWikiView').classList.remove('hidden');
-            document.getElementById('wikiName').value = appState.currentWiki.name;
-            document.getElementById('wikiDescription').value = appState.currentWiki.description;
-            
-            // Change form submission handler temporarily
-            const form = document.querySelector('#createWikiView form');
-            form.onsubmit = updateWiki;
-            
-            updateBreadcrumb([
-                {text: appState.currentWiki.name, action: () => showWiki(appState.currentWiki.id)},
-                {text: 'Edit'}
-            ]);
-        }
-
-        function updateWiki(event) {
-            event.preventDefault();
-            
-            const name = document.getElementById('wikiName').value.trim();
-            const description = document.getElementById('wikiDescription').value.trim();
-            
-            if (!name || !appState.currentWiki) return;
-            
-            appState.currentWiki.name = name;
-            appState.currentWiki.description = description;
-            
-            // Reset form handler
-            const form = document.querySelector('#createWikiView form');
-            form.onsubmit = createWiki;
-            
-            showWiki(appState.currentWiki.id);
-        }
-
-        function deleteWiki() {
-            if (!appState.currentWiki || !hasPermission(PERMISSIONS.DELETE_WIKI, appState.currentWiki.id)) {
-                showAlert('You do not have permission to delete this wiki.');
-                return;
-            }
-            
-            showConfirmDialog(
-                'Delete Wiki',
-                `Are you sure you want to delete "${appState.currentWiki.name}"? This action cannot be undone.`,
-                () => {
-                    // Remove wiki from users' roles
-                    appState.users.forEach(user => {
-                        if (user.wikiRoles && user.wikiRoles[appState.currentWiki.id]) {
-                            delete user.wikiRoles[appState.currentWiki.id];
-                        }
-                    });
-                    
-                    appState.wikis = appState.wikis.filter(w => w.id !== appState.currentWiki.id);
-                    showWikiList();
-                }
-            );
-        }
-
-        // Page Management
-        function savePage(event) {
-            event.preventDefault();
-            
-            const title = document.getElementById('pageTitle').value.trim();
-            const content = document.getElementById('pageContentEditor').value;
-            
-            if (!title || !appState.currentWiki) return;
-            
-            const requiredPermission = appState.editingPage ? PERMISSIONS.EDIT_PAGE : PERMISSIONS.CREATE_PAGE;
-            if (!hasPermission(requiredPermission, appState.currentWiki.id)) {
-                showAlert(`You do not have permission to ${appState.editingPage ? 'edit' : 'create'} pages in this wiki.`);
-                return;
-            }
-            
-            if (appState.editingPage) {
-                // Update existing page
-                appState.editingPage.title = title;
-                appState.editingPage.content = content;
-                appState.editingPage.lastUpdated = new Date().toISOString();
-                showPage(appState.editingPage.id);
-            } else {
-                // Create new page
-                const page = {
-                    id: Date.now().toString(),
-                    title,
-                    content,
-                    created: new Date().toISOString(),
-                    lastUpdated: new Date().toISOString()
-                };
-                
-                appState.currentWiki.pages.push(page);
-                showPage(page.id);
-            }
-            
-            updateSidebar();
-        }
-
-        function deleteCurrentPage() {
-            if (!appState.currentPage || !appState.currentWiki || !hasPermission(PERMISSIONS.DELETE_PAGE, appState.currentWiki.id)) {
-                showAlert('You do not have permission to delete pages in this wiki.');
-                return;
-            }
-            
-            showConfirmDialog(
-                'Delete Page',
-                `Are you sure you want to delete "${appState.currentPage.title}"? This action cannot be undone.`,
-                () => {
-                    appState.currentWiki.pages = appState.currentWiki.pages.filter(p => p.id !== appState.currentPage.id);
-                    showWiki(appState.currentWiki.id);
-                    updateSidebar();
-                }
-            );
-        }
-
-        // Markdown Preview
-        function updatePreview() {
-            const content = document.getElementById('pageContentEditor').value;
-            const preview = document.getElementById('pagePreview');
-            
-            if (content.trim()) {
-                preview.innerHTML = marked.parse(content);
-            } else {
-                preview.innerHTML = '<p class="text-gray-500 dark:text-gray-400 italic">Preview will appear here as you type...</p>';
-            }
-        }
-
-        // Search
-        function handleSearchKeypress(event) {
-            if (event.key === 'Enter') {
-                performSearch();
-            }
-        }
-
-        function performSearch() {
-            const query = document.getElementById('searchInput').value.trim().toLowerCase();
-            if (!query) return;
-            
-            hideAllViews();
-            document.getElementById('searchView').classList.remove('hidden');
-            document.getElementById('searchQuery').textContent = `Results for: "${query}"`;
-            
-            const results = [];
-            
-            appState.wikis.forEach(wiki => {
-                if (canAccessWiki(wiki)) {
-                    wiki.pages.forEach(page => {
-                        if (page.title.toLowerCase().includes(query) || page.content.toLowerCase().includes(query)) {
-                            results.push({
-                                wiki,
-                                page,
-                                score: (page.title.toLowerCase().includes(query) ? 2 : 0) + 
-                                       (page.content.toLowerCase().includes(query) ? 1 : 0)
-                            });
-                        }
-                    });
-                }
-            });
-            
-            results.sort((a, b) => b.score - a.score);
-            renderSearchResults(results);
-            updateBreadcrumb([{text: `Search: ${query}`}]);
-        }
-
-        function renderSearchResults(results) {
-            const container = document.getElementById('searchResults');
-            
-            if (results.length === 0) {
-                container.innerHTML = `
-                    <div class="text-center py-8">
-                        <i class="fas fa-search text-4xl text-gray-300 dark:text-gray-600 mb-4"></i>
-                        <p class="text-gray-500 dark:text-gray-400">No results found</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            container.innerHTML = results.map(result => `
-                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow cursor-pointer" onclick="openSearchResult('${result.wiki.id}', '${result.page.id}')">
-                    <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">${result.page.title}</h3>
-                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-2">In wiki: ${result.wiki.name}</p>
-                    <p class="text-gray-700 dark:text-gray-300 line-clamp-3">${result.page.content.substring(0, 200)}...</p>
-                </div>
-            `).join('');
-        }
-
-        function openSearchResult(wikiId, pageId) {
-            const wiki = appState.wikis.find(w => w.id === wikiId);
-            if (wiki && canAccessWiki(wiki)) {
-                appState.currentWiki = wiki;
-                showPage(pageId);
-                updateSidebar();
-            }
-        }
-
-        // UI Updates
-        function updateBreadcrumb(items) {
-            const breadcrumb = document.getElementById('breadcrumb');
-            
-            if (items.length === 0) {
-                breadcrumb.innerHTML = '';
-                return;
-            }
-            
-            breadcrumb.innerHTML = items.map((item, index) => {
-                const isLast = index === items.length - 1;
-                const classes = isLast ? 'text-white' : 'text-white text-opacity-75 hover:text-white cursor-pointer';
-                const onclick = item.action ? `onclick="(${item.action.toString()})()"` : '';
-                
-                return `
-                    <span class="${classes}" ${onclick}>${item.text}</span>
-                    ${!isLast ? '<i class="fas fa-chevron-right text-xs opacity-50"></i>' : ''}
-                `;
-            }).join('');
-        }
-
-        function updateSidebar() {
-            const currentWikiInfo = document.getElementById('currentWikiInfo');
-            const pagesList = document.getElementById('pagesList');
-            
-            if (appState.currentWiki && canAccessWiki(appState.currentWiki)) {
-                currentWikiInfo.classList.remove('hidden');
-                document.getElementById('currentWikiName').textContent = appState.currentWiki.name;
-                document.getElementById('currentWikiDesc').textContent = appState.currentWiki.description;
-                
-                if (appState.currentWiki.pages.length > 0) {
-                    pagesList.innerHTML = appState.currentWiki.pages.map(page => `
-                        <div class="p-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded cursor-pointer flex items-center" onclick="showPage('${page.id}')">
-                            <i class="fas fa-file-alt mr-2 text-xs"></i>
-                            <span class="truncate">${page.title}</span>
-                        </div>
-                    `).join('');
-                } else {
-                    pagesList.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400 italic">No pages yet</p>';
-                }
-            } else {
-                currentWikiInfo.classList.add('hidden');
-            }
-        }
-
-        function renderWikis() {
-            const grid = document.getElementById('wikiGrid');
-            const emptyState = document.getElementById('emptyWikiState');
-            
-            const accessibleWikis = appState.wikis.filter(wiki => !appState.currentUser || canAccessWiki(wiki));
-            
-            if (accessibleWikis.length === 0) {
-                grid.innerHTML = '';
-                emptyState.classList.remove('hidden');
-                return;
-            }
-            
-            emptyState.classList.add('hidden');
-            grid.innerHTML = accessibleWikis.map(wiki => {
-                const userRole = appState.currentUser ? getUserRole(wiki.id) : null;
-                const roleDisplay = userRole ? `<span class="text-xs bg-primary text-white px-2 py-1 rounded-full">${userRole}</span>` : '';
-                
-                return `
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow cursor-pointer" onclick="showWiki('${wiki.id}')">
-                        <div class="flex items-center justify-between mb-2">
-                            <h3 class="text-xl font-semibold text-gray-900 dark:text-white">${wiki.name}</h3>
-                            ${roleDisplay}
-                        </div>
-                        <p class="text-gray-600 dark:text-gray-400 mb-4 line-clamp-2">${wiki.description || 'No description'}</p>
-                        <div class="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
-                            <span><i class="fas fa-file-alt mr-1"></i>${wiki.pages.length} pages</span>
-                            <span><i class="fas fa-calendar mr-1"></i>${new Date(wiki.created).toLocaleDateString()}</span>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        function renderWikiPages() {
-            const grid = document.getElementById('wikiPagesGrid');
-            const emptyState = document.getElementById('emptyPagesState');
-            
-            if (!appState.currentWiki || appState.currentWiki.pages.length === 0) {
-                grid.innerHTML = '';
-                emptyState.classList.remove('hidden');
-                return;
-            }
-            
-            emptyState.classList.add('hidden');
-            grid.innerHTML = appState.currentWiki.pages.map(page => `
-                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow cursor-pointer" onclick="showPage('${page.id}')">
-                    <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">${page.title}</h4>
-                    <p class="text-gray-600 dark:text-gray-400 text-sm mb-3 line-clamp-3">${page.content.substring(0, 100)}...</p>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">
-                        <i class="fas fa-clock mr-1"></i>Updated ${new Date(page.lastUpdated).toLocaleDateString()}
-                    </p>
-                </div>
-            `).join('');
+        function toggleDarkMode() {
+            appState.isDarkMode = !appState.isDarkMode;
+            document.documentElement.classList.toggle('dark', appState.isDarkMode);
+            localStorage.setItem('darkMode', appState.isDarkMode);
         }
 
         function toggleSidebar() {
+            appState.sidebarOpen = !appState.sidebarOpen;
             const sidebar = document.getElementById('sidebar');
-            sidebar.classList.toggle('-translate-x-full');
+            if (appState.sidebarOpen) {
+                sidebar.classList.remove('-translate-x-full');
+            } else {
+                sidebar.classList.add('-translate-x-full');
+            }
         }
 
-        // Real-time preview update
-        document.addEventListener('DOMContentLoaded', function() {
-            const pageContentTextarea = document.getElementById('pageContentEditor');
-            if (pageContentTextarea) {
-                pageContentTextarea.addEventListener('input', updatePreview);
+        // --- Rendering Functions ---
+        function renderApp() {
+            document.documentElement.classList.toggle('dark', appState.isDarkMode);
+            document.getElementById('user-info').style.display = appState.currentUser ? 'flex' : 'none';
+            document.getElementById('user-display-name').textContent = appState.currentUser ? appState.currentUser.name || appState.currentUser.email : '';
+
+            document.getElementById('app-section').classList.toggle('hidden', !appState.currentUser);
+            document.getElementById('auth-section').classList.toggle('hidden', !!appState.currentUser);
+
+            renderWikis();
+            renderPages(); // Ensure pages for current wiki are rendered
+            renderPageContent(); // Ensure page content is rendered
+            renderPageEditorState(); // Render state of page editor
+            renderWikiActions(); // Render wiki action buttons
+            renderManageUsersModal(); // Update user management modal
+        }
+
+        function renderWikis() {
+            const wikiList = document.getElementById('wiki-list');
+            wikiList.innerHTML = ''; // Clear existing wikis
+
+            const filteredWikis = appState.wikis.filter(wiki =>
+                (wiki.name || '').toLowerCase().includes(appState.searchTerm.toLowerCase()) ||
+                (wiki.description || '').toLowerCase().includes(appState.searchTerm.toLowerCase())
+            );
+
+            if (filteredWikis.length === 0) {
+                wikiList.innerHTML = '<li class="text-gray-600 dark:text-gray-400">No wikis available.</li>';
+                return;
+            }
+
+            filteredWikis.forEach(wiki => {
+                const wikiElement = document.createElement('li');
+                wikiElement.className = `p-3 rounded-md cursor-pointer flex items-center space-x-3 transition hover:bg-gray-300 dark:hover:bg-gray-700 ${appState.currentWiki && appState.currentWiki.id === wiki.id ? 'bg-primary text-white hover:!bg-primary-dark' : 'bg-gray-100 dark:bg-gray-700'}`;
+                wikiElement.innerHTML = `
+                    <span class="text-2xl">${wiki.icon || '📚'}</span>
+                    <div class="flex-1">
+                        <div class="font-semibold text-lg ${appState.currentWiki && appState.currentWiki.id === wiki.id ? 'text-white' : 'text-gray-800 dark:text-gray-100'}">${wiki.name}</div>
+                        <div class="text-sm ${appState.currentWiki && appState.currentWiki.id === wiki.id ? 'text-gray-200' : 'text-gray-600 dark:text-gray-400'}">${wiki.description}</div>
+                    </div>
+                `;
+                wikiElement.onclick = () => selectWiki(wiki.id);
+                wikiList.appendChild(wikiElement);
+            });
+        }
+
+        function renderPages() {
+            const pagesList = document.getElementById('pages-list');
+            pagesList.innerHTML = ''; // Clear existing pages
+
+            if (!appState.currentWiki || !appState.currentWiki.pages || appState.currentWiki.pages.length === 0) {
+                pagesList.innerHTML = '<li class="text-gray-600 dark:text-gray-400">No pages for this wiki.</li>';
+                document.getElementById('page-list-sidebar').classList.add('hidden');
+                document.getElementById('add-page-button').classList.add('hidden');
+                return;
+            }
+
+            document.getElementById('page-list-sidebar').classList.remove('hidden');
+            document.getElementById('add-page-button').classList.remove('hidden');
+
+            appState.currentWiki.pages.forEach(page => {
+                const pageElement = document.createElement('li');
+                pageElement.className = `p-2 rounded-md cursor-pointer transition hover:bg-gray-200 dark:hover:bg-gray-600 ${appState.currentPage && appState.currentPage.id === page.id ? 'bg-blue-500 text-white hover:!bg-blue-600' : 'text-gray-800 dark:text-gray-100'}`;
+                pageElement.textContent = page.title;
+                pageElement.onclick = () => selectPage(page.id);
+                pagesList.appendChild(pageElement);
+            });
+        }
+
+        function renderPageContent() {
+            const pageDisplay = document.getElementById('page-display');
+            const pageEditFormContainer = document.getElementById('page-edit-form-container');
+
+            if (appState.currentPage) {
+                pageDisplay.innerHTML = marked.parse(appState.currentPage.content || 'No content for this page.');
+                pageDisplay.classList.remove('hidden');
+                pageEditFormContainer.classList.add('hidden');
+                document.getElementById('edit-page-button').classList.remove('hidden');
+            } else {
+                pageDisplay.innerHTML = '<p class="text-gray-600 dark:text-gray-400">Select a page or create a new one.</p>';
+                pageDisplay.classList.remove('hidden');
+                pageEditFormContainer.classList.add('hidden');
+                document.getElementById('edit-page-button').classList.add('hidden');
+            }
+        }
+
+        function renderPageEditorState() {
+            const pageEditFormContainer = document.getElementById('page-edit-form-container');
+            const pageTitleInput = document.getElementById('page-title-input');
+            const pageContentInput = document.getElementById('page-content-input');
+            const editFormTitle = document.getElementById('edit-form-title');
+            const deletePageButton = document.getElementById('delete-page-button');
+
+            if (pageEditFormContainer.classList.contains('hidden')) {
+                // Not in edit mode, ensure display state is correct
+                document.getElementById('page-display').classList.remove('hidden');
+                return;
+            }
+
+            // In edit mode
+            document.getElementById('page-display').classList.add('hidden');
+
+            if (appState.currentPage) {
+                editFormTitle.textContent = 'Edit Page';
+                pageTitleInput.value = appState.currentPage.title;
+                pageContentInput.value = appState.currentPage.content;
+                deletePageButton.classList.remove('hidden');
+            } else {
+                editFormTitle.textContent = 'Create New Page';
+                pageTitleInput.value = '';
+                pageContentInput.value = '';
+                deletePageButton.classList.add('hidden'); // Cannot delete a page that doesn't exist yet
+            }
+        }
+
+        function renderWikiActions() {
+            const addPageButton = document.getElementById('add-page-button');
+            const manageUsersButton = document.getElementById('manage-users-button');
+            const deleteWikiButton = document.getElementById('delete-wiki-button');
+
+            const currentUserRole = appState.currentUser && appState.currentWiki
+                ? (appState.currentWiki.users || []).find(u => u.userId === appState.currentUser.id)?.role
+                : null;
+
+            addPageButton.classList.toggle('hidden', !appState.currentWiki || !['admin', 'editor'].includes(currentUserRole));
+            manageUsersButton.classList.toggle('hidden', !appState.currentWiki || currentUserRole !== 'admin');
+            deleteWikiButton.classList.toggle('hidden', !appState.currentWiki || currentUserRole !== 'admin');
+
+            document.getElementById('wiki-title').textContent = appState.currentWiki ? appState.currentWiki.name : 'Select a Wiki';
+            document.getElementById('wiki-description').textContent = appState.currentWiki ? appState.currentWiki.description : '';
+        }
+
+        function renderManageUsersModal() {
+            const userListContainer = document.getElementById('user-list-container');
+            const noUsersMessage = document.getElementById('no-users-message');
+            userListContainer.innerHTML = ''; // Clear previous list
+
+            if (!appState.currentWiki || !appState.currentWiki.users || appState.currentWiki.users.length === 0) {
+                noUsersMessage.classList.remove('hidden');
+                return;
+            }
+
+            noUsersMessage.classList.add('hidden');
+            appState.currentWiki.users.forEach(wikiUser => {
+                const userElement = document.createElement('div');
+                userElement.className = 'flex justify-between items-center bg-gray-100 dark:bg-gray-700 p-2 rounded-md mb-2';
+                const user = appState.users.find(u => u.id === wikiUser.userId);
+                const userName = user ? user.name || user.email : wikiUser.userId; // Fallback to ID if user not found in appState.users
+
+                userElement.innerHTML = `
+                    <span>${userName} (${wikiUser.role})</span>
+                    ${appState.currentUser && wikiUser.userId !== appState.currentUser.id && appState.currentUser.id === appState.currentWiki.ownerId ? `
+                    <button class="remove-user-button bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded" data-user-id="${wikiUser.userId}">Remove</button>
+                    ` : ''}
+                `;
+                userListContainer.appendChild(userElement);
+            });
+
+            document.querySelectorAll('.remove-user-button').forEach(button => {
+                button.onclick = (e) => removeUserFromWiki(e.target.dataset.userId);
+            });
+        }
+
+
+        // --- Core Application Logic ---
+
+        // NEW: Function to load wikis and pages from Firestore
+        async function loadWikisAndPages() {
+            try {
+                // Real-time listener for wikis
+                db.collection("wikis").orderBy("lastUpdated", "desc").onSnapshot(snapshot => {
+                    const fetchedWikis = [];
+                    snapshot.forEach(doc => {
+                        fetchedWikis.push({ id: doc.id, ...doc.data() });
+                    });
+                    updateAppState({ wikis: fetchedWikis });
+                    renderWikis(); // Re-render the wiki list
+                    // If a currentWiki is set, ensure it's still in the fetched list
+                    if (appState.currentWiki && !fetchedWikis.find(w => w.id === appState.currentWiki.id)) {
+                         updateAppState({ currentWiki: null, currentPage: null });
+                         renderPages(); // Clear pages if current wiki is gone
+                    } else if (appState.currentWiki) {
+                        // Re-select the current wiki to ensure pages are loaded for the updated wiki data
+                        selectWiki(appState.currentWiki.id);
+                    }
+                }, error => {
+                    console.error("Error fetching wikis: ", error);
+                    displayMessage('Error loading wikis. Please try again.', 'error');
+                });
+            } catch (e) {
+                console.error("Error setting up Firestore listeners:", e);
+            }
+        }
+
+        async function createWiki(event) {
+            event.preventDefault();
+            if (!appState.currentUser) {
+                displayMessage('You must be logged in to create a wiki.', 'error');
+                return;
+            }
+
+            const wikiName = document.getElementById('new-wiki-name').value;
+            const wikiDescription = document.getElementById('new-wiki-description').value;
+            const wikiIcon = document.getElementById('new-wiki-icon').value;
+            const isPublic = document.getElementById('new-wiki-is-public').checked;
+
+            if (!wikiName.trim()) {
+                displayMessage('Wiki name cannot be empty.', 'error');
+                return;
+            }
+
+            try {
+                const newWikiRef = await db.collection("wikis").add({
+                    name: wikiName,
+                    description: wikiDescription,
+                    icon: wikiIcon || '📚',
+                    isPublic: isPublic,
+                    ownerId: appState.currentUser.id, // Store the creator's ID
+                    users: [{ userId: appState.currentUser.id, role: 'admin' }], // Creator is admin
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                // After creating the wiki, create a default 'Home Page' for it
+                await db.collection("pages").add({
+                    wikiId: newWikiRef.id,
+                    title: 'Home Page',
+                    content: `## Welcome to ${wikiName}!\n\nThis is your wiki's home page. Start adding content here.`,
+                    creatorId: appState.currentUser.id,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                document.getElementById('create-wiki-form').reset();
+                hideModal('createWikiModal');
+                displayMessage('Wiki and default Home Page created successfully!', 'success');
+
+            } catch (error) {
+                console.error("Error creating wiki or default page: ", error);
+                displayMessage('Failed to create wiki. ' + error.message, 'error');
+            }
+        }
+
+
+        async function selectWiki(wikiId) {
+            const selectedWiki = appState.wikis.find(wiki => wiki.id === wikiId);
+            if (selectedWiki) {
+                updateAppState({ currentWiki: selectedWiki, currentPage: null });
+
+                // Fetch pages for the selected wiki from Firestore
+                try {
+                    const pagesSnapshot = await db.collection("pages")
+                        .where("wikiId", "==", wikiId)
+                        .orderBy("title")
+                        .get();
+
+                    const fetchedPages = [];
+                    pagesSnapshot.forEach(doc => {
+                        fetchedPages.push({ id: doc.id, ...doc.data() });
+                    });
+
+                    // Attach pages to the currentWiki object for easier access
+                    appState.currentWiki.pages = fetchedPages;
+
+                    renderPages(); // Re-render the pages list for the selected wiki
+                    document.getElementById('wiki-title').textContent = selectedWiki.name;
+                    document.getElementById('wiki-description').textContent = selectedWiki.description;
+
+                    // Attempt to select the home page or the first page if available
+                    const homePage = fetchedPages.find(page => page.title === 'Home Page');
+                    if (homePage) {
+                        selectPage(homePage.id);
+                    } else if (fetchedPages.length > 0) {
+                        selectPage(fetchedPages[0].id);
+                    } else {
+                        // No pages, clear current page
+                        updateAppState({ currentPage: null });
+                        renderPageContent(); // Clear content area
+                    }
+
+                } catch (error) {
+                    console.error("Error fetching pages for wiki: ", error);
+                    displayMessage('Error loading pages for this wiki.', 'error');
+                }
+            }
+        }
+
+        function selectPage(pageId) {
+            if (!appState.currentWiki) return;
+            const selectedPage = appState.currentWiki.pages.find(page => page.id === pageId);
+            if (selectedPage) {
+                updateAppState({ currentPage: selectedPage });
+                renderPageContent();
+            }
+        }
+
+        async function savePage(event) {
+            event.preventDefault();
+            if (!appState.currentWiki || !appState.currentUser) {
+                displayMessage('Select a wiki and log in to save a page.', 'error');
+                return;
+            }
+
+            const pageTitle = document.getElementById('page-title-input').value;
+            const pageContent = document.getElementById('page-content-input').value;
+
+            if (!pageTitle.trim()) {
+                displayMessage('Page title cannot be empty.', 'error');
+                return;
+            }
+
+            try {
+                if (appState.currentPage && appState.currentPage.id) {
+                    // Update existing page
+                    await db.collection("pages").doc(appState.currentPage.id).update({
+                        title: pageTitle,
+                        content: pageContent,
+                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    displayMessage('Page updated successfully!', 'success');
+                } else {
+                    // Create new page
+                    const newPageRef = await db.collection("pages").add({
+                        wikiId: appState.currentWiki.id,
+                        title: pageTitle,
+                        content: pageContent,
+                        creatorId: appState.currentUser.id,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    // Update appState to reflect the newly created page
+                    updateAppState({ currentPage: { id: newPageRef.id, wikiId: appState.currentWiki.id, title: pageTitle, content: pageContent } });
+                    displayMessage('Page created successfully!', 'success');
+                }
+                renderPages(); // Re-render pages list for current wiki
+                hidePageEditForm(); // Hide form after saving
+            } catch (error) {
+                console.error("Error saving page: ", error);
+                displayMessage('Failed to save page. ' + error.message, 'error');
+            }
+        }
+
+        async function deleteWiki(wikiId) {
+            if (!confirm('Are you sure you want to delete this wiki and all its pages? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                // First, delete all pages associated with the wiki
+                const pagesSnapshot = await db.collection("pages").where("wikiId", "==", wikiId).get();
+                const batch = db.batch();
+                pagesSnapshot.forEach(doc => {
+                    batch.delete(doc.ref);
+                });
+                await batch.commit(); // Commit the batch delete for pages
+
+                // Then, delete the wiki document itself
+                await db.collection("wikis").doc(wikiId).delete();
+
+                displayMessage('Wiki and all its pages deleted successfully!', 'success');
+                hideModal('deleteWikiModal');
+                // Reset current wiki/page if the deleted wiki was active
+                if (appState.currentWiki && appState.currentWiki.id === wikiId) {
+                    updateAppState({ currentWiki: null, currentPage: null });
+                }
+                // Wikis will re-render automatically due to the onSnapshot listener in loadWikisAndPages
+            } catch (error) {
+                console.error("Error deleting wiki: ", error);
+                displayMessage('Failed to delete wiki. ' + error.message, 'error');
+            }
+        }
+
+        async function deleteCurrentPage() {
+            if (!appState.currentPage || !appState.currentWiki) {
+                displayMessage('No page selected to delete.', 'error');
+                return;
+            }
+            if (!confirm('Are you sure you want to delete this page? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                await db.collection("pages").doc(appState.currentPage.id).delete();
+                displayMessage('Page deleted successfully!', 'success');
+                hideModal('deletePageModal'); // Assuming you have a delete page modal, otherwise hide form directly
+                updateAppState({ currentPage: null }); // Clear the current page
+                selectWiki(appState.currentWiki.id); // Re-load pages for the current wiki to update the list
+            } catch (error) {
+                console.error("Error deleting page: ", error);
+                displayMessage('Failed to delete page. ' + error.message, 'error');
+            }
+        }
+
+        function showPageEditForm() {
+            document.getElementById('page-display').classList.add('hidden');
+            document.getElementById('page-edit-form-container').classList.remove('hidden');
+            renderPageEditorState();
+        }
+
+        function hidePageEditForm() {
+            document.getElementById('page-display').classList.remove('hidden');
+            document.getElementById('page-edit-form-container').classList.add('hidden');
+        }
+
+        async function addUserToWiki(event) {
+            event.preventDefault();
+            if (!appState.currentWiki || !appState.currentUser || appState.currentWiki.ownerId !== appState.currentUser.id) {
+                displayMessage('You do not have permission to add users to this wiki.', 'error');
+                return;
+            }
+
+            const userEmail = document.getElementById('user-email-input').value;
+            const userRole = document.getElementById('user-role-select').value;
+
+            if (!userEmail.trim()) {
+                displayMessage('User email cannot be empty.', 'error');
+                return;
+            }
+
+            try {
+                // Find the user by email (assuming a 'users' collection or similar mapping)
+                // For this example, we'll assume the email directly maps to a userId.
+                // In a real app, you'd query your user directory (e.g., Firestore 'users' collection)
+                // to get the UID for the given email.
+                const potentialUserQuery = await db.collection("users").where("email", "==", userEmail).limit(1).get();
+                let targetUserId = null;
+                if (!potentialUserQuery.empty) {
+                    targetUserId = potentialUserQuery.docs[0].id; // Use Firestore document ID as userId
+                } else {
+                    displayMessage('User with that email not found. Please ensure they have signed up.', 'error');
+                    return;
+                }
+
+                // Check if user already exists in wiki.users
+                const existingUser = appState.currentWiki.users.find(u => u.userId === targetUserId);
+                if (existingUser) {
+                    if (existingUser.role === userRole) {
+                        displayMessage('User already has this role.', 'info');
+                        return;
+                    } else {
+                        // Update existing user's role
+                        const updatedUsers = appState.currentWiki.users.map(u => 
+                            u.userId === targetUserId ? { ...u, role: userRole } : u
+                        );
+                        await db.collection("wikis").doc(appState.currentWiki.id).update({ users: updatedUsers });
+                        displayMessage('User role updated successfully!', 'success');
+                    }
+                } else {
+                    // Add new user
+                    const updatedUsers = [...appState.currentWiki.users, { userId: targetUserId, role: userRole }];
+                    await db.collection("wikis").doc(appState.currentWiki.id).update({ users: updatedUsers });
+                    displayMessage('User added successfully!', 'success');
+                }
+                
+                document.getElementById('user-email-input').value = ''; // Clear input
+                // Wiki will re-render due to onSnapshot, refreshing user list
+            } catch (error) {
+                console.error("Error adding user to wiki: ", error);
+                displayMessage('Failed to add user. ' + error.message, 'error');
+            }
+        }
+
+        async function removeUserFromWiki(userIdToRemove) {
+            if (!appState.currentWiki || !appState.currentUser || appState.currentWiki.ownerId !== appState.currentUser.id) {
+                displayMessage('You do not have permission to remove users from this wiki.', 'error');
+                return;
+            }
+            if (!confirm('Are you sure you want to remove this user from the wiki?')) {
+                return;
             }
             
-            // Close dropdowns when clicking outside
-            document.addEventListener('click', function(event) {
-                const dropdown = document.getElementById('userDropdownMenu');
-                const button = document.getElementById('userDropdown');
-                
-                if (!button.contains(event.target) && !dropdown.contains(event.target)) {
-                    dropdown.classList.add('hidden');
+            try {
+                const updatedUsers = appState.currentWiki.users.filter(u => u.userId !== userIdToRemove);
+                await db.collection("wikis").doc(appState.currentWiki.id).update({ users: updatedUsers });
+                displayMessage('User removed successfully!', 'success');
+                // Wiki will re-render due to onSnapshot, refreshing user list
+            } catch (error) {
+                console.error("Error removing user from wiki: ", error);
+                displayMessage('Failed to remove user. ' + error.message, 'error');
+            }
+        }
+
+
+        // --- Auth Functions ---
+        let authMode = 'login'; // 'login' or 'signup'
+
+        function updateAuthForm() {
+            const authTitle = document.getElementById('auth-title');
+            const authSubmitButton = document.getElementById('auth-submit-button');
+            const confirmPasswordGroup = document.getElementById('confirm-password-group');
+            const toggleAuthModeButton = document.getElementById('toggle-auth-mode');
+            const forgotPasswordButton = document.getElementById('forgot-password-button');
+
+            if (authMode === 'login') {
+                authTitle.textContent = 'Login';
+                authSubmitButton.textContent = 'Login';
+                confirmPasswordGroup.classList.add('hidden');
+                toggleAuthModeButton.textContent = "Don't have an account? Sign Up";
+                forgotPasswordButton.classList.remove('hidden');
+            } else { // signup
+                authTitle.textContent = 'Sign Up';
+                authSubmitButton.textContent = 'Sign Up';
+                confirmPasswordGroup.classList.remove('hidden');
+                toggleAuthModeButton.textContent = "Already have an account? Log In";
+                forgotPasswordButton.classList.add('hidden');
+            }
+        }
+
+        async function handleAuthSubmit(event) {
+            event.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+
+            if (authMode === 'signup' && password !== confirmPassword) {
+                displayMessage('Passwords do not match.', 'error');
+                return;
+            }
+
+            try {
+                if (authMode === 'login') {
+                    await auth.signInWithEmailAndPassword(email, password);
+                    displayMessage('Logged in successfully!', 'success');
+                } else { // signup
+                    const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                    // Add user to a 'users' collection in Firestore (optional, but good for user profiles)
+                    await db.collection("users").doc(userCredential.user.uid).set({
+                        email: email,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    displayMessage('Account created successfully! You are now logged in.', 'success');
                 }
-            });
+            } catch (error) {
+                console.error("Auth error:", error);
+                displayMessage('Authentication failed: ' + error.message, 'error');
+            }
+        }
+
+        async function logout() {
+            try {
+                await auth.signOut();
+                displayMessage('Logged out successfully!', 'success');
+            } catch (error) {
+                console.error("Logout error:", error);
+                displayMessage('Failed to log out: ' + error.message, 'error');
+            }
+        }
+
+        async function resetPassword() {
+            const email = document.getElementById('email').value;
+            if (!email) {
+                displayMessage('Please enter your email to reset password.', 'info');
+                return;
+            }
+            try {
+                await auth.sendPasswordResetEmail(email);
+                displayMessage('Password reset email sent to ' + email, 'success');
+            } catch (error) {
+                console.error("Password reset error:", error);
+                displayMessage('Failed to send password reset email: ' + error.message, 'error');
+            }
+        }
+
+        // --- Event Listeners ---
+        document.getElementById('dark-mode-toggle').addEventListener('click', toggleDarkMode);
+        document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
+        document.getElementById('close-sidebar').addEventListener('click', toggleSidebar);
+        document.getElementById('create-wiki-button').addEventListener('click', () => showModal('createWikiModal'));
+        document.getElementById('create-wiki-form').addEventListener('submit', createWiki);
+        document.getElementById('add-page-button').addEventListener('click', () => {
+            updateAppState({ currentPage: null }); // Clear current page to indicate new page creation
+            showPageEditForm();
+        });
+        document.getElementById('page-form').addEventListener('submit', savePage);
+        document.getElementById('cancel-edit-page-button').addEventListener('click', hidePageEditForm);
+        document.getElementById('delete-page-button').addEventListener('click', deleteCurrentPage);
+        document.getElementById('delete-wiki-button').addEventListener('click', () => deleteWiki(appState.currentWiki.id)); // Pass current wiki ID
+        
+        document.getElementById('wiki-search').addEventListener('input', (e) => {
+            updateAppState({ searchTerm: e.target.value });
+        });
+        document.getElementById('mobile-wiki-search').addEventListener('input', (e) => {
+            updateAppState({ searchTerm: e.target.value });
         });
 
-        // Initialize app when DOM is ready
-        document.addEventListener('DOMContentLoaded', initApp);
+        document.getElementById('manage-users-button').addEventListener('click', () => showModal('manageUsersModal'));
+        document.getElementById('add-user-form').addEventListener('submit', addUserToWiki);
 
-        // Add some sample data for demonstration
-        setTimeout(() => {
-            if (appState.wikis.length === 0) {
-                // Create a demo wiki with some users
-                const demoWiki = {
-                    id: 'demo1',
-                    name: 'Getting Started Guide',
-                    description: 'Learn how to use WikiBuilder effectively',
-                    created: new Date().toISOString(),
-                    users: [
-                        { userId: 'admin', role: 'owner', addedAt: new Date().toISOString() },
-                        { userId: 'editor', role: 'editor', addedAt: new Date().toISOString() },
-                        { userId: 'viewer', role: 'viewer', addedAt: new Date().toISOString() }
-                    ],
-                    pages: [
-                        {
-                            id: 'demo-page1',
-                            title: 'Welcome to WikiBuilder',
-                            content: `# Welcome to WikiBuilder
+        // Auth related listeners
+        document.getElementById('auth-form').addEventListener('submit', handleAuthSubmit);
+        document.getElementById('toggle-auth-mode').addEventListener('click', () => {
+            authMode = authMode === 'login' ? 'signup' : 'login';
+            updateAuthForm();
+        });
+        document.getElementById('logout-button').addEventListener('click', logout);
+        document.getElementById('forgot-password-button').addEventListener('click', resetPassword);
 
-This is your first page! WikiBuilder is a powerful wiki platform that lets you create and organize knowledge with role-based permissions.
 
-## User Roles
-
-WikiBuilder supports different user roles with varying levels of access:
-
-- **Owner**: Full control over the wiki, including deletion and user management
-- **Admin**: Can manage users and edit wiki settings, but cannot delete the wiki
-- **Editor**: Can create, edit, and delete pages
-- **Contributor**: Can create and edit pages, but cannot delete them
-- **Viewer**: Read-only access to wiki content
-
-## Features
-
-- **Markdown Support**: Write content using familiar markdown syntax
-- **Real-time Preview**: See your changes as you type
-- **Role-based Permissions**: Control who can do what in your wikis
-- **User Management**: Add and remove users, assign roles
-- **Responsive Design**: Works great on all devices
-- **Dark Mode**: Automatically adapts to your system preferences
-
-## Getting Started
-
-1. Login using one of the demo accounts (admin/admin, editor/editor, viewer/viewer)
-2. Create a new wiki or explore existing ones
-3. Add users and assign appropriate roles
-4. Create pages and start organizing your knowledge
-5. Use the search feature to find content across all your wikis
-
-## Demo Users
-
-Try logging in with these demo accounts to see different permission levels:
-
-- **admin/admin**: Full admin access
-- **editor/editor**: Can edit pages but not manage users
-- **viewer/viewer**: Read-only access
-
-Happy wiki building! 🚀`,
-                            created: new Date().toISOString(),
-                            lastUpdated: new Date().toISOString()
-                        }
-                    ]
-                };
-                
-                appState.wikis.push(demoWiki);
-                
-                // Update demo users with wiki roles
-                appState.users.forEach(user => {
-                    const wikiUser = demoWiki.users.find(u => u.userId === user.id);
-                    if (wikiUser) {
-                        if (!user.wikiRoles) user.wikiRoles = {};
-                        user.wikiRoles[demoWiki.id] = wikiUser.role;
-                    }
-                });
-                
-                renderWikis();
+        // Initial app setup
+        function initApp() {
+            auth.onAuthStateChanged(user => {
+                if (user) {
+                    // User is signed in.
+                    updateAppState({ currentUser: { id: user.uid, email: user.email, name: user.displayName || user.email } });
+                    document.getElementById('auth-section').classList.add('hidden');
+                    document.getElementById('app-section').classList.remove('hidden');
+                    loadWikisAndPages(); // Load data once user is authenticated
+                } else {
+                    // User is signed out.
+                    updateAppState({ currentUser: null, wikis: [], currentWiki: null, currentPage: null });
+                    document.getElementById('auth-section').classList.remove('hidden');
+                    document.getElementById('app-section').classList.add('hidden');
+                    // Optionally, clear forms or show a login message
+                }
+                updateAuthForm(); // Ensure auth form is correct based on state
+                renderApp(); // Render the UI based on the new appState
+            });
+            
+            // Apply dark mode preference on load
+            const savedDarkMode = localStorage.getItem('darkMode');
+            if (savedDarkMode !== null) {
+                appState.isDarkMode = JSON.parse(savedDarkMode);
             }
-        }, 100);
+            document.documentElement.classList.toggle('dark', appState.isDarkMode);
+        }
+
+        // Call initApp when the DOM is fully loaded
+        document.addEventListener('DOMContentLoaded', initApp);
     </script>
 </body>
 </html>
