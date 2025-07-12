@@ -154,6 +154,12 @@
                 <div id="page-content-area" class="flex-1 p-6 overflow-y-auto">
                     <div id="page-display" class="prose dark:prose-invert max-w-none">
                         <p class="text-gray-600 dark:text-gray-400">Select a page from the left to view its content, or create a new page.</p>
+                        <!-- New: Edit Page Button for viewing pages -->
+                        <div id="page-view-actions" class="mt-4 text-right">
+                            <button id="edit-page-button" class="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md text-sm transition" style="display: none;">
+                                <i class="fas fa-edit mr-1"></i>Edit Page
+                            </button>
+                        </div>
                     </div>
                     
                     <div id="page-edit-form-container" class="mt-8 p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md hidden">
@@ -755,6 +761,7 @@
             const pageEditFormContainer = document.getElementById('page-edit-form-container');
             const loadingIndicator = document.getElementById('loading-indicator');
             const uploadImageButton = document.getElementById('upload-image-button'); // New
+            const editPageButton = document.getElementById('edit-page-button'); // New
 
             if (appState.currentUser) {
                 if (userInfo) userInfo.style.display = 'flex';
@@ -802,6 +809,10 @@
             if (uploadImageButton) {
                 const canUploadImage = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) || hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id);
                 uploadImageButton.style.display = canUploadImage ? 'inline-block' : 'none';
+            }
+            // New: Show edit page button based on permissions and if a page is selected
+            if (editPageButton) {
+                editPageButton.style.display = (appState.currentPage && hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id)) ? 'inline-block' : 'none';
             }
 
 
@@ -988,8 +999,9 @@
         function renderPageContent() {
             const pageDisplay = document.getElementById('page-display');
             const pageEditFormContainer = document.getElementById('page-edit-form-container');
+            const editPageButton = document.getElementById('edit-page-button'); // Get the new button
 
-            if (!pageDisplay || !pageEditFormContainer) return; // Null checks
+            if (!pageDisplay || !pageEditFormContainer || !editPageButton) return; // Null checks
 
             if (appState.currentPage) {
                 // Check if the user has permission to view the current page
@@ -997,15 +1009,24 @@
                     pageDisplay.innerHTML = marked.parse(appState.currentPage.content || 'No content for this page.');
                     pageDisplay.classList.remove('hidden');
                     pageEditFormContainer.classList.add('hidden');
+                    
+                    // Show/hide edit button based on permissions
+                    if (hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id)) {
+                        editPageButton.style.display = 'inline-block';
+                    } else {
+                        editPageButton.style.display = 'none';
+                    }
                 } else {
                     pageDisplay.innerHTML = '<p class="text-red-500 dark:text-red-400">You do not have permission to view this page.</p>';
                     pageDisplay.classList.remove('hidden');
                     pageEditFormContainer.classList.add('hidden');
+                    editPageButton.style.display = 'none'; // Hide edit button if no view permission
                 }
             } else {
                 pageDisplay.innerHTML = '<p class="text-gray-600 dark:text-gray-400">Select a page or create a new one.</p>';
                 pageDisplay.classList.remove('hidden');
                 pageEditFormContainer.classList.add('hidden');
+                editPageButton.style.display = 'none'; // Hide edit button if no page selected
             }
         }
 
@@ -2036,6 +2057,9 @@
             // This ensures the element exists when the listener is attached.
             // New: Event listener for image upload button
             document.getElementById('upload-image-button')?.addEventListener('click', uploadAndInsertImage);
+            // New: Event listener for edit page button
+            document.getElementById('edit-page-button')?.addEventListener('click', showPageEditForm);
+
 
             // Add hashchange listener
             window.addEventListener('hashchange', handleUrlChange);
