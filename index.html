@@ -116,6 +116,10 @@
                 <button id="sidebar-add-page-button" class="mt-3 w-full bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md text-sm transition" style="display: none;">
                     <i class="fas fa-plus mr-1"></i>New Page
                 </button>
+                <h4 class="font-semibold text-gray-800 dark:text-gray-100 mt-4 mb-2">Categories</h4>
+                <ul id="sidebar-categories-list" class="space-y-1 mb-4">
+                    <!-- Categories will be listed here -->
+                </ul>
                 <h4 class="font-semibold text-gray-800 dark:text-gray-100 mt-4 mb-2">Pages</h4>
                 <ul id="sidebar-pages-list" class="space-y-1">
                     </ul>
@@ -153,6 +157,10 @@
                             <div class="mb-4">
                                 <label for="page-title-input" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Page Title</label>
                                 <input type="text" id="page-title-input" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary">
+                            </div>
+                            <div class="mb-4">
+                                <label for="page-category-input" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category (Optional)</label>
+                                <input type="text" id="page-category-input" placeholder="e.g., Documentation, Meeting Notes" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary">
                             </div>
                             <div class="mb-4">
                                 <label for="page-content-editor" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Content (Markdown)</label>
@@ -361,7 +369,8 @@
             currentWiki: null,
             searchTerm: '',
             sidebarOpen: false, // Start sidebar closed for mobile
-            isDarkMode: window.matchMedia('(prefers-color-scheme: dark)').matches // Initialize based on system preference
+            isDarkMode: window.matchMedia('(prefers-color-scheme: dark)').matches, // Initialize based on system preference
+            currentCategory: null // New state for category filtering
         };
 
         // User Roles and Permissions
@@ -523,6 +532,23 @@
             }
         });
 
+        /**
+         * Generates a URL-friendly slug from a string.
+         * @param {string} text The input string.
+         * @returns {string} The slugified string.
+         */
+        function slugify(text) {
+            return text
+                .toString()
+                .normalize('NFD') // Normalize diacritics
+                .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+                .toLowerCase() // Convert to lowercase
+                .trim() // Trim whitespace from both ends
+                .replace(/\s+/g, '-') // Replace spaces with -
+                .replace(/[^\w-]+/g, '') // Remove all non-word chars
+                .replace(/--+/g, '-'); // Replace multiple - with single -
+        }
+
 
         // --- Routing Logic ---
         function handleUrlChange() {
@@ -534,10 +560,14 @@
             hideAllContentExceptMain(); // Reset visibility for main content areas
 
             if (hash.startsWith('#wiki/')) {
-                const wikiId = hash.substring(6); // Remove '#wiki/'
+                // Expected format: #wiki/{slug}-{id}
+                const parts = hash.substring(6).split('-');
+                const wikiId = parts[parts.length - 1]; // Get the ID from the end
+
                 const selectedWiki = appState.wikis.find(w => w.id === wikiId);
                 if (selectedWiki) {
-                    updateAppState({ currentWiki: selectedWiki, currentPage: null });
+                    // Reset category filter when navigating to a wiki via URL
+                    updateAppState({ currentWiki: selectedWiki, currentPage: null, currentCategory: null });
                     // Attempt to select the home page or the first page if available
                     const homePage = selectedWiki.pages.find(page => page.title === 'Home Page');
                     if (homePage) {
@@ -580,7 +610,7 @@
         }
 
         function navigateToDefaultView() {
-            updateAppState({ currentWiki: null, currentPage: null, searchTerm: '' });
+            updateAppState({ currentWiki: null, currentPage: null, searchTerm: '', currentCategory: null }); // Reset category
             // Ensure all main content elements are visible for the default view
             document.getElementById('wiki-header').classList.remove('hidden');
             document.getElementById('page-display').classList.remove('hidden');
@@ -607,11 +637,36 @@
 
         // Modify existing functions to use hash
         function selectWiki(wikiId) {
-            window.location.hash = `wiki/${wikiId}`;
+            const wiki = appState.wikis.find(w => w.id === wikiId);
+            if (wiki) {
+                window.location.hash = `wiki/${slugify(wiki.name)}-${wiki.id}`;
+            } else {
+                console.error("Wiki not found for selection:", wikiId);
+                displayMessage("Error: Wiki not found.", "error");
+                navigateToDefaultView();
+            }
             // Close sidebar on mobile after selecting a wiki
             if (window.innerWidth < 1024) { 
                 toggleSidebar();
             }
+        }
+
+        function selectPage(pageId) {
+            if (!appState.currentWiki) return;
+            const selectedPage = appState.currentWiki.pages.find(page => page.id === pageId);
+            if (selectedPage) {
+                if (!hasPermission(PERMISSIONS.VIEW_PAGE, appState.currentWiki.id)) {
+                    displayMessage('You do not have permission to view this page.', 'error');
+                    return;
+                }
+                updateAppState({ currentPage: selectedPage });
+                renderPageContent();
+            }
+        }
+
+        function filterPagesByCategory(category) {
+            updateAppState({ currentCategory: category, currentPage: null }); // Set category, clear current page
+            // No need to change hash for category filtering within a wiki
         }
 
         async function viewUserProfile(userId) {
@@ -688,33 +743,45 @@
         function updateSidebarDisplay() {
             const currentWikiSidebarInfo = document.getElementById('current-wiki-sidebar-info');
             const sidebarPagesList = document.getElementById('sidebar-pages-list');
+            const sidebarCategoriesList = document.getElementById('sidebar-categories-list'); // New element
             const sidebarAddPageButton = document.getElementById('sidebar-add-page-button');
 
-            if (currentWikiSidebarInfo) { // Add null check
-                // Only show wiki info if a wiki is selected AND no search term is active
-                if (appState.currentWiki && canAccessWiki(appState.currentWiki) && !appState.searchTerm) {
-                    currentWikiSidebarInfo.classList.remove('hidden');
-                    document.getElementById('sidebar-wiki-name').textContent = appState.currentWiki.name;
-                    document.getElementById('sidebar-wiki-description').textContent = appState.currentWiki.description;
+            if (!currentWikiSidebarInfo || !sidebarPagesList || !sidebarCategoriesList) return; // Null checks
 
-                    if (sidebarAddPageButton) { // Add null check
-                        sidebarAddPageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id) ? 'block' : 'none';
-                    }
+            // Only show wiki info if a wiki is selected AND no search term is active
+            if (appState.currentWiki && canAccessWiki(appState.currentWiki) && !appState.searchTerm) {
+                currentWikiSidebarInfo.classList.remove('hidden');
+                document.getElementById('sidebar-wiki-name').textContent = appState.currentWiki.name;
+                document.getElementById('sidebar-wiki-description').textContent = appState.currentWiki.description;
 
-                    if (sidebarPagesList) { // Add null check
-                        if (appState.currentWiki.pages && appState.currentWiki.pages.length > 0) {
-                            sidebarPagesList.innerHTML = appState.currentWiki.pages.map(page => `
-                                <li class="p-2 rounded-md cursor-pointer transition hover:bg-gray-200 dark:hover:bg-gray-600 ${appState.currentPage && appState.currentPage.id === page.id ? 'bg-blue-500 text-white hover:!bg-blue-600' : 'text-gray-800 dark:text-gray-100'}">
-                                    <a href="#" onclick="selectPage('${page.id}')">${page.title}</a>
-                                </li>
-                            `).join('');
-                        } else {
-                            sidebarPagesList.innerHTML = '<li class="text-sm text-gray-500 dark:text-gray-400 italic">No pages yet.</li>';
-                        }
-                    }
-                } else {
-                    currentWikiSidebarInfo.classList.add('hidden');
+                if (sidebarAddPageButton) {
+                    sidebarAddPageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id) ? 'block' : 'none';
                 }
+
+                // Render Categories
+                const categories = ['All Pages', ...new Set(appState.currentWiki.pages.map(p => p.category).filter(Boolean))].sort();
+                sidebarCategoriesList.innerHTML = categories.map(category => `
+                    <li class="p-2 rounded-md cursor-pointer transition hover:bg-gray-200 dark:hover:bg-gray-600 ${appState.currentCategory === category || (category === 'All Pages' && appState.currentCategory === null) ? 'bg-blue-500 text-white hover:!bg-blue-600' : 'text-gray-800 dark:text-gray-100'}">
+                        <a href="#" onclick="event.preventDefault(); filterPagesByCategory('${category === 'All Pages' ? '' : category}')">${category}</a>
+                    </li>
+                `).join('');
+
+                // Render Pages based on currentCategory
+                const filteredPages = appState.currentWiki.pages.filter(page =>
+                    appState.currentCategory === null || appState.currentCategory === '' || page.category === appState.currentCategory
+                );
+
+                if (filteredPages.length > 0) {
+                    sidebarPagesList.innerHTML = filteredPages.map(page => `
+                        <li class="p-2 rounded-md cursor-pointer transition hover:bg-gray-200 dark:hover:bg-gray-600 ${appState.currentPage && appState.currentPage.id === page.id ? 'bg-primary text-white hover:!bg-primary-dark' : 'text-gray-800 dark:text-gray-100'}">
+                            <a href="#" onclick="event.preventDefault(); selectPage('${page.id}')">${page.title}</a>
+                        </li>
+                    `).join('');
+                } else {
+                    sidebarPagesList.innerHTML = '<li class="text-sm text-gray-500 dark:text-gray-400 italic">No pages in this category.</li>';
+                }
+            } else {
+                currentWikiSidebarInfo.classList.add('hidden');
             }
         }
 
@@ -825,6 +892,7 @@
         function renderPageEditorState() {
             const pageEditFormContainer = document.getElementById('page-edit-form-container');
             const pageTitleInput = document.getElementById('page-title-input');
+            const pageCategoryInput = document.getElementById('page-category-input'); // New element
             const pageContentEditor = document.getElementById('page-content-editor');
             const editFormTitle = document.getElementById('edit-form-title');
             const deletePageButton = document.getElementById('delete-page-button');
@@ -833,7 +901,7 @@
             const cancelEditPageButton = document.getElementById('cancel-edit-page-button');
 
 
-            if (!pageEditFormContainer || !pageTitleInput || !pageContentEditor || !editFormTitle || !deletePageButton || !pagePreview || !savePageButton || !cancelEditPageButton) {
+            if (!pageEditFormContainer || !pageTitleInput || !pageCategoryInput || !pageContentEditor || !editFormTitle || !deletePageButton || !pagePreview || !savePageButton || !cancelEditPageButton) {
                 return; // Null check for all elements
             }
 
@@ -852,12 +920,14 @@
             if (appState.currentPage) {
                 editFormTitle.textContent = 'Edit Page';
                 pageTitleInput.value = appState.currentPage.title;
+                pageCategoryInput.value = appState.currentPage.category || ''; // Populate category
                 pageContentEditor.value = appState.currentPage.content;
                 deletePageButton.style.display = hasPermission(PERMISSIONS.DELETE_PAGE, appState.currentWiki.id) ? 'inline-block' : 'none';
                 savePageButton.style.display = hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id) ? 'inline-block' : 'none';
             } else {
                 editFormTitle.textContent = 'Create New Page';
                 pageTitleInput.value = '';
+                pageCategoryInput.value = ''; // Clear category for new page
                 pageContentEditor.value = '';
                 deletePageButton.style.display = 'none'; // Cannot delete a page that doesn't exist yet
                 savePageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id) ? 'inline-block' : 'none';
@@ -1034,6 +1104,7 @@
                     description: wikiDescription,
                     icon: wikiIcon || '📚',
                     isPublic: isPublic,
+                    slug: slugify(wikiName), // Generate slug here
                     ownerId: appState.currentUser.id, // Store the creator's ID
                     users: [{ userId: appState.currentUser.id, role: ROLES.OWNER }], // Creator is owner
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -1045,6 +1116,7 @@
                     wikiId: newWikiRef.id,
                     title: 'Home Page',
                     content: `## Welcome to ${wikiName}!\n\nThis is your wiki's home page. Start adding content here.`,
+                    category: 'General', // Default category for home page
                     creatorId: appState.currentUser.id,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
@@ -1069,6 +1141,7 @@
             }
 
             const pageTitle = document.getElementById('page-title-input').value;
+            const pageCategory = document.getElementById('page-category-input').value.trim(); // Get category
             const pageContent = document.getElementById('page-content-editor').value; // Corrected ID
 
             if (!pageTitle.trim()) {
@@ -1085,6 +1158,7 @@
                     }
                     await db.collection("pages").doc(appState.currentPage.id).update({
                         title: pageTitle,
+                        category: pageCategory, // Save category
                         content: pageContent,
                         lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                     });
@@ -1098,13 +1172,14 @@
                     const newPageRef = await db.collection("pages").add({
                         wikiId: appState.currentWiki.id,
                         title: pageTitle,
+                        category: pageCategory, // Save category
                         content: pageContent,
                         creatorId: appState.currentUser.id,
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                         lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                     });
                     // Update appState to reflect the newly created page
-                    updateAppState({ currentPage: { id: newPageRef.id, wikiId: appState.currentWiki.id, title: pageTitle, content: pageContent } });
+                    updateAppState({ currentPage: { id: newPageRef.id, wikiId: appState.currentWiki.id, title: pageTitle, category: pageCategory, content: pageContent } });
                     displayMessage('Page created successfully!', 'success');
                 }
                 // The onSnapshot listener for wikis/pages will re-fetch and update appState.wikis,
