@@ -182,6 +182,9 @@
                             </div>
                         </form>
                     </div>
+                    <div id="loading-indicator" class="text-center text-gray-500 dark:text-gray-400 mt-8 text-lg hidden">
+                        <i class="fas fa-spinner fa-spin mr-2"></i> Loading wikis...
+                    </div>
                 </div>
             </div>
         </section>
@@ -392,7 +395,8 @@
             searchTerm: '',
             sidebarOpen: false, // Start sidebar closed for mobile
             isDarkMode: window.matchMedia('(prefers-color-scheme: dark)').matches, // Initialize based on system preference
-            currentCategory: null // New state for category filtering
+            currentCategory: null, // New state for category filtering
+            isLoading: true // New loading state
         };
 
         // User Roles and Permissions
@@ -732,6 +736,7 @@
             const manageCategoriesButton = document.getElementById('manage-categories-button'); // New button
             const deleteWikiButton = document.getElementById('delete-wiki-button');
             const pageEditFormContainer = document.getElementById('page-edit-form-container');
+            const loadingIndicator = document.getElementById('loading-indicator');
 
 
             if (appState.currentUser) {
@@ -746,8 +751,22 @@
                 if (createWikiButton) createWikiButton.style.display = 'none'; // Hide create wiki button
             }
 
+            // Show/hide loading indicator
+            if (loadingIndicator) {
+                loadingIndicator.classList.toggle('hidden', !appState.isLoading);
+            }
+            // Hide main content when loading
+            if (appState.isLoading) {
+                document.getElementById('wiki-header').classList.add('hidden');
+                document.getElementById('page-display').classList.add('hidden');
+                document.getElementById('page-edit-form-container').classList.add('hidden');
+            } else {
+                document.getElementById('wiki-header').classList.remove('hidden');
+                renderPageContent(); // Re-render page content once loading is done
+            }
+
+
             renderWikis();
-            renderPageContent(); // Ensure page content is rendered
             renderPageEditorState(); // Render state of page editor
             renderWikiActions(); // Render wiki action buttons
             renderManageUsersModal(); // Update user management modal
@@ -861,6 +880,12 @@
             if (!wikiList) return; // Null check
 
             wikiList.innerHTML = ''; // Clear existing wikis
+
+            // If loading, display loading message instead of wikis
+            if (appState.isLoading) {
+                wikiList.innerHTML = '<li class="text-center text-gray-600 dark:text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i> Loading wikis...</li>';
+                return;
+            }
 
             const filteredWikis = appState.wikis.filter(wiki =>
                 canAccessWiki(wiki) && // Only show wikis the current user can access
@@ -1166,6 +1191,7 @@
 
         // Function to load wikis and pages from Firestore
         async function loadWikisAndPages() {
+            updateAppState({ isLoading: true }); // Set loading state to true
             try {
                 // Real-time listener for wikis
                 db.collection("wikis").orderBy("lastUpdated", "desc").onSnapshot(async snapshot => {
@@ -1187,7 +1213,7 @@
                                                             .sort((a, b) => a.title.localeCompare(b.title)); // Sort by title in JS
                         fetchedWikis.push(wikiData);
                     }
-                    updateAppState({ wikis: fetchedWikis });
+                    updateAppState({ wikis: fetchedWikis, isLoading: false }); // Update appState and set loading to false
                     
                     // If a currentWiki is set, ensure it's still in the fetched list
                     if (appState.currentWiki) {
@@ -1209,9 +1235,11 @@
                 }, error => {
                     console.error("Error fetching wikis and pages: ", error);
                     displayMessage('Error loading wikis and pages. Please try again.', 'error');
+                    updateAppState({ isLoading: false }); // Also set loading to false on error
                 });
             } catch (e) {
                 console.error("Error setting up Firestore listeners:", e);
+                updateAppState({ isLoading: false }); // Also set loading to false on error
             }
         }
 
@@ -1769,6 +1797,11 @@
             }
             document.documentElement.classList.toggle('dark', appState.isDarkMode);
 
+            // Initial data load (before auth state is fully determined)
+            // This ensures public wikis start loading immediately.
+            loadUsers();
+            loadWikisAndPages();
+
             // Authentication state change listener - This is the primary entry point after load/auth change
             auth.onAuthStateChanged(async (user) => {
                 if (user) {
@@ -1795,7 +1828,7 @@
                             updateAppState({ currentUser: { id: user.uid, ...basicUserData } });
                             displayMessage(`Welcome, ${user.email}! (Profile created)`, 'info');
                         }
-                        // Load all users and wikis/pages once authenticated
+                        // Re-load data based on new auth status (important for permissions)
                         loadUsers();
                         loadWikisAndPages();
                     } catch (error) {
@@ -1806,7 +1839,8 @@
                 } else {
                     // User is signed out. Clear app state.
                     updateAppState({ currentUser: null, wikis: [], users: [], currentWiki: null, currentPage: null });
-                    loadWikisAndPages(); // Load wikis even if not authenticated (only public ones will show)
+                    // Re-load wikis to show only public ones
+                    loadWikisAndPages();
                 }
                 updateAuthForm(); // Ensure auth form view is correct
                 handleUrlChange(); // This will render the correct view based on URL
