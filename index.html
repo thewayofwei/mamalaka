@@ -136,6 +136,9 @@
                     <button id="add-page-button" class="bg-primary hover:bg-primary-dark text-white py-1 px-3 rounded-md text-sm transition" style="display: none;">
                         <i class="fas fa-plus mr-1"></i>New Page
                     </button>
+                    <button id="manage-categories-button" class="bg-purple-500 hover:bg-purple-600 text-white py-1 px-3 rounded-md text-sm transition" style="display: none;">
+                        <i class="fas fa-tags mr-1"></i>Manage Categories
+                    </button>
                     <button id="manage-users-button" class="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md text-sm transition" style="display: none;">
                         <i class="fas fa-users mr-1"></i>Manage Users
                     </button>
@@ -229,6 +232,25 @@
             </form>
             <div class="flex justify-end">
                 <button type="button" onclick="hideModal('manageUsersModal')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="manageCategoriesModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h2 class="text-2xl font-bold mb-4">Manage Categories</h2>
+            <div id="category-list-container" class="mb-4 max-h-60 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-md p-2">
+                <ul id="category-management-list" class="space-y-2">
+                    <!-- Categories will be listed here -->
+                </ul>
+                <p id="no-categories-message" class="text-gray-600 dark:text-gray-400 hidden">No categories defined for this wiki.</p>
+            </div>
+            <form id="add-category-form" class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 mb-4">
+                <input type="text" id="new-category-input" placeholder="New Category Name" class="flex-1 p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+                <button type="submit" class="bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-4 rounded-md">Add Category</button>
+            </form>
+            <div class="flex justify-end">
+                <button type="button" onclick="hideModal('manageCategoriesModal')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md">Done</button>
             </div>
         </div>
     </div>
@@ -387,6 +409,7 @@
             DELETE_WIKI: 'delete_wiki',
             EDIT_WIKI: 'edit_wiki',
             MANAGE_USERS: 'manage_users',
+            MANAGE_CATEGORIES: 'manage_categories', // New permission
             
             // Page-level permissions
             CREATE_PAGE: 'create_page',
@@ -397,11 +420,11 @@
 
         const ROLE_PERMISSIONS = {
             [ROLES.OWNER]: [
-                PERMISSIONS.DELETE_WIKI, PERMISSIONS.EDIT_WIKI, PERMISSIONS.MANAGE_USERS,
+                PERMISSIONS.DELETE_WIKI, PERMISSIONS.EDIT_WIKI, PERMISSIONS.MANAGE_USERS, PERMISSIONS.MANAGE_CATEGORIES,
                 PERMISSIONS.CREATE_PAGE, PERMISSIONS.EDIT_PAGE, PERMISSIONS.DELETE_PAGE, PERMISSIONS.VIEW_PAGE
             ],
             [ROLES.ADMIN]: [
-                PERMISSIONS.EDIT_WIKI, PERMISSIONS.MANAGE_USERS,
+                PERMISSIONS.EDIT_WIKI, PERMISSIONS.MANAGE_USERS, PERMISSIONS.MANAGE_CATEGORIES,
                 PERMISSIONS.CREATE_PAGE, PERMISSIONS.EDIT_PAGE, PERMISSIONS.DELETE_PAGE, PERMISSIONS.VIEW_PAGE
             ],
             [ROLES.EDITOR]: [
@@ -660,13 +683,19 @@
                     return;
                 }
                 updateAppState({ currentPage: selectedPage });
-                renderPageContent();
+            }
+            // Close sidebar on mobile after selecting a page
+            if (window.innerWidth < 1024) { 
+                toggleSidebar();
             }
         }
 
         function filterPagesByCategory(category) {
             updateAppState({ currentCategory: category, currentPage: null }); // Set category, clear current page
-            // No need to change hash for category filtering within a wiki
+            // Close sidebar on mobile after selecting a category
+            if (window.innerWidth < 1024) { 
+                toggleSidebar();
+            }
         }
 
         async function viewUserProfile(userId) {
@@ -700,6 +729,7 @@
             const sidebarAddPageButton = document.getElementById('sidebar-add-page-button');
             const addPageButton = document.getElementById('add-page-button');
             const manageUsersButton = document.getElementById('manage-users-button');
+            const manageCategoriesButton = document.getElementById('manage-categories-button'); // New button
             const deleteWikiButton = document.getElementById('delete-wiki-button');
             const pageEditFormContainer = document.getElementById('page-edit-form-container');
 
@@ -728,6 +758,8 @@
             if (sidebarAddPageButton) sidebarAddPageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) ? 'block' : 'none';
             if (addPageButton) addPageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) ? 'block' : 'none';
             if (manageUsersButton) manageUsersButton.style.display = hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki?.id) ? 'block' : 'none';
+            // New: Show manage categories button
+            if (manageCategoriesButton) manageCategoriesButton.style.display = hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki?.id) ? 'block' : 'none';
             if (deleteWikiButton) deleteWikiButton.style.display = hasPermission(PERMISSIONS.DELETE_WIKI, appState.currentWiki?.id) ? 'block' : 'none';
 
             // Hide page edit form if not logged in or no permissions
@@ -759,24 +791,63 @@
                 }
 
                 // Render Categories
-                const categories = ['All Pages', ...new Set(appState.currentWiki.pages.map(p => p.category).filter(Boolean))].sort();
-                sidebarCategoriesList.innerHTML = categories.map(category => `
-                    <li class="p-2 rounded-md cursor-pointer transition hover:bg-gray-200 dark:hover:bg-gray-600 ${appState.currentCategory === category || (category === 'All Pages' && appState.currentCategory === null) ? 'bg-blue-500 text-white hover:!bg-blue-600' : 'text-gray-800 dark:text-gray-100'}">
-                        <a href="#" onclick="event.preventDefault(); filterPagesByCategory('${category === 'All Pages' ? '' : category}')">${category}</a>
-                    </li>
-                `).join('');
+                // Combine categories from wiki's master list and pages for display
+                const allPageCategories = new Set(appState.currentWiki.pages.map(p => p.category).filter(Boolean));
+                const wikiDefinedCategories = new Set(appState.currentWiki.categories || []);
+                const combinedCategories = new Set([...allPageCategories, ...wikiDefinedCategories]);
+
+                const categoriesToDisplay = ['All Pages', 'Uncategorized', ...Array.from(combinedCategories).sort()];
+                
+                sidebarCategoriesList.innerHTML = ''; // Clear existing
+                categoriesToDisplay.forEach(category => {
+                    const li = document.createElement('li');
+                    let displayCategory = category;
+                    let isSelected = false;
+
+                    if (category === 'All Pages') {
+                        isSelected = (appState.currentCategory === null || appState.currentCategory === '');
+                    } else if (category === 'Uncategorized') {
+                        isSelected = (appState.currentCategory === '__uncategorized__'); // Special internal value
+                    } else {
+                        isSelected = (appState.currentCategory === category);
+                    }
+
+                    li.className = `p-2 rounded-md cursor-pointer transition hover:bg-gray-200 dark:hover:bg-gray-600 ${isSelected ? 'bg-blue-500 text-white hover:!bg-blue-600' : 'text-gray-800 dark:text-gray-100'}`;
+                    li.textContent = displayCategory;
+                    
+                    li.onclick = () => {
+                        if (category === 'All Pages') {
+                            filterPagesByCategory(null); // Clear category filter
+                        } else if (category === 'Uncategorized') {
+                            filterPagesByCategory('__uncategorized__'); // Filter for pages with empty category
+                        } else {
+                            filterPagesByCategory(category);
+                        }
+                    };
+                    sidebarCategoriesList.appendChild(li);
+                });
 
                 // Render Pages based on currentCategory
-                const filteredPages = appState.currentWiki.pages.filter(page =>
-                    appState.currentCategory === null || appState.currentCategory === '' || page.category === appState.currentCategory
-                );
+                const filteredPages = appState.currentWiki.pages.filter(page => {
+                    if (appState.currentCategory === null || appState.currentCategory === '') {
+                        return true; // Show all pages
+                    } else if (appState.currentCategory === '__uncategorized__') {
+                        return !page.category || page.category.trim() === ''; // Pages with no category
+                    } else {
+                        return page.category === appState.currentCategory;
+                    }
+                });
 
+                sidebarPagesList.innerHTML = ''; // Clear existing
                 if (filteredPages.length > 0) {
-                    sidebarPagesList.innerHTML = filteredPages.map(page => `
-                        <li class="p-2 rounded-md cursor-pointer transition hover:bg-gray-200 dark:hover:bg-gray-600 ${appState.currentPage && appState.currentPage.id === page.id ? 'bg-primary text-white hover:!bg-primary-dark' : 'text-gray-800 dark:text-gray-100'}">
-                            <a href="#" onclick="event.preventDefault(); selectPage('${page.id}')">${page.title}</a>
-                        </li>
-                    `).join('');
+                    filteredPages.forEach(page => {
+                        const li = document.createElement('li');
+                        li.className = `p-2 rounded-md cursor-pointer transition hover:bg-gray-200 dark:hover:bg-gray-600 ${appState.currentPage && appState.currentPage.id === page.id ? 'bg-primary text-white hover:!bg-primary-dark' : 'text-gray-800 dark:text-gray-100'}`;
+                        li.textContent = page.title;
+                        // Attach click handler directly to the <li>
+                        li.onclick = () => selectPage(page.id);
+                        sidebarPagesList.appendChild(li);
+                    });
                 } else {
                     sidebarPagesList.innerHTML = '<li class="text-sm text-gray-500 dark:text-gray-400 italic">No pages in this category.</li>';
                 }
@@ -952,11 +1023,13 @@
         function renderWikiActions() {
             const addPageButton = document.getElementById('add-page-button');
             const manageUsersButton = document.getElementById('manage-users-button');
+            const manageCategoriesButton = document.getElementById('manage-categories-button');
             const deleteWikiButton = document.getElementById('delete-wiki-button');
 
             // Add null checks for buttons and set display style
             if (addPageButton) addPageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) ? 'block' : 'none';
             if (manageUsersButton) manageUsersButton.style.display = hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki?.id) ? 'block' : 'none';
+            if (manageCategoriesButton) manageCategoriesButton.style.display = hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki?.id) ? 'block' : 'none';
             if (deleteWikiButton) deleteWikiButton.style.display = hasPermission(PERMISSIONS.DELETE_WIKI, appState.currentWiki?.id) ? 'block' : 'none';
 
             const wikiTitle = document.getElementById('wiki-title');
@@ -1013,6 +1086,62 @@
             });
         }
 
+        function showManageCategoriesModal() {
+            if (!appState.currentWiki || !appState.currentUser) {
+                displayMessage('No wiki selected.', 'error');
+                return;
+            }
+            if (!hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id)) {
+                displayMessage('You do not have permission to manage categories.', 'error');
+                return;
+            }
+            renderManageCategoriesModal();
+            showModal('manageCategoriesModal');
+        }
+
+        function renderManageCategoriesModal() {
+            const categoryManagementList = document.getElementById('category-management-list');
+            const noCategoriesMessage = document.getElementById('no-categories-message');
+            const addCategoryForm = document.getElementById('add-category-form');
+
+            if (!categoryManagementList || !noCategoriesMessage || !addCategoryForm) {
+                console.warn("Manage categories modal elements not found, skipping renderManageCategoriesModal.");
+                return;
+            }
+
+            categoryManagementList.innerHTML = ''; // Clear previous list
+
+            if (hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki?.id)) {
+                addCategoryForm.style.display = 'flex';
+            } else {
+                addCategoryForm.style.display = 'none';
+            }
+
+            const categories = appState.currentWiki?.categories || [];
+
+            if (categories.length === 0) {
+                noCategoriesMessage.classList.remove('hidden');
+                return;
+            }
+
+            noCategoriesMessage.classList.add('hidden');
+            categories.forEach(category => {
+                const categoryElement = document.createElement('li');
+                categoryElement.className = 'flex justify-between items-center bg-gray-100 dark:bg-gray-700 p-2 rounded-md mb-2';
+                categoryElement.innerHTML = `
+                    <span>${category}</span>
+                    ${hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id) ? `
+                    <button class="delete-category-button bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded" data-category-name="${category}">Delete</button>
+                    ` : ''}
+                `;
+                categoryManagementList.appendChild(categoryElement);
+            });
+
+            document.querySelectorAll('.delete-category-button').forEach(button => {
+                button.onclick = (e) => deleteCategory(e.target.dataset.categoryName);
+            });
+        }
+
 
         // --- Core Application Logic ---
 
@@ -1043,6 +1172,11 @@
                     const fetchedWikis = [];
                     for (const doc of snapshot.docs) {
                         const wikiData = { id: doc.id, ...doc.data() };
+                        // Ensure categories array exists
+                        if (!wikiData.categories) {
+                            wikiData.categories = [];
+                        }
+
                         // Fetch pages for each wiki without orderBy
                         const pagesSnapshot = await db.collection("pages")
                             .where("wikiId", "==", wikiData.id)
@@ -1107,6 +1241,7 @@
                     slug: slugify(wikiName), // Generate slug here
                     ownerId: appState.currentUser.id, // Store the creator's ID
                     users: [{ userId: appState.currentUser.id, role: ROLES.OWNER }], // Creator is owner
+                    categories: ['General'], // Initialize with a default category
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                 });
@@ -1397,6 +1532,90 @@
             }
         }
 
+        async function addCategory(event) {
+            event.preventDefault();
+            if (!appState.currentWiki || !appState.currentUser) {
+                displayMessage('No wiki selected.', 'error');
+                return;
+            }
+            if (!hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id)) {
+                displayMessage('You do not have permission to manage categories.', 'error');
+                return;
+            }
+
+            const newCategoryName = document.getElementById('new-category-input').value.trim();
+            if (!newCategoryName) {
+                displayMessage('Category name cannot be empty.', 'error');
+                return;
+            }
+
+            const currentCategories = appState.currentWiki.categories || [];
+            if (currentCategories.includes(newCategoryName)) {
+                displayMessage('Category already exists.', 'info');
+                return;
+            }
+
+            try {
+                const updatedCategories = [...currentCategories, newCategoryName].sort();
+                await db.collection("wikis").doc(appState.currentWiki.id).update({
+                    categories: updatedCategories,
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                document.getElementById('new-category-input').value = ''; // Clear input
+                displayMessage(`Category "${newCategoryName}" added.`, 'success');
+                // The onSnapshot listener will re-render the modal and sidebar
+            } catch (error) {
+                console.error("Error adding category:", error);
+                displayMessage('Failed to add category. ' + error.message, 'error');
+            }
+        }
+
+        async function deleteCategory(categoryToDelete) {
+            if (!appState.currentWiki || !appState.currentUser) {
+                displayMessage('No wiki selected.', 'error');
+                return;
+            }
+            if (!hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id)) {
+                displayMessage('You do not have permission to manage categories.', 'error');
+                return;
+            }
+
+            const confirmed = await showConfirmationModal(
+                'Delete Category',
+                `Are you sure you want to delete the category "${categoryToDelete}"? Pages assigned to this category will become uncategorized.`
+            );
+
+            if (!confirmed) {
+                return;
+            }
+
+            try {
+                // Remove category from wiki's master list
+                const updatedCategories = (appState.currentWiki.categories || []).filter(cat => cat !== categoryToDelete);
+                await db.collection("wikis").doc(appState.currentWiki.id).update({
+                    categories: updatedCategories,
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                });
+
+                // Update pages that used this category
+                const pagesToUpdate = appState.currentWiki.pages.filter(p => p.category === categoryToDelete);
+                if (pagesToUpdate.length > 0) {
+                    const batch = db.batch();
+                    pagesToUpdate.forEach(page => {
+                        const pageRef = db.collection("pages").doc(page.id);
+                        batch.update(pageRef, { category: '' }); // Set to empty string
+                    });
+                    await batch.commit();
+                }
+
+                displayMessage(`Category "${categoryToDelete}" deleted. Pages updated.`, 'success');
+                // The onSnapshot listener will re-render the modal and sidebar
+            } catch (error) {
+                console.error("Error deleting category:", error);
+                displayMessage('Failed to delete category. ' + error.message, 'error');
+            }
+        }
+
 
         // --- Authentication Logic ---
 
@@ -1626,7 +1845,8 @@
             });
             document.getElementById('delete-page-button')?.addEventListener('click', deleteCurrentPage);
             document.getElementById('manage-users-button')?.addEventListener('click', () => showModal('manageUsersModal'));
-            document.getElementById('add-user-form')?.addEventListener('submit', addUserToWiki);
+            document.getElementById('manage-categories-button')?.addEventListener('click', () => showManageCategoriesModal()); // New event listener
+            document.getElementById('add-category-form')?.addEventListener('submit', addCategory); // New event listener
             document.getElementById('delete-wiki-button')?.addEventListener('click', deleteWiki);
 
             // Profile related event listeners
