@@ -154,12 +154,12 @@
                 <div id="page-content-area" class="flex-1 p-6 overflow-y-auto">
                     <div id="page-display" class="prose dark:prose-invert max-w-none">
                         <p class="text-gray-600 dark:text-gray-400">Select a page from the left to view its content, or create a new page.</p>
-                        <!-- New: Edit Page Button for viewing pages -->
-                        <div id="page-view-actions" class="mt-4 text-right">
-                            <button id="edit-page-button" class="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md text-sm transition" style="display: none;">
-                                <i class="fas fa-edit mr-1"></i>Edit Page
-                            </button>
-                        </div>
+                    </div>
+                    <!-- Moved page-view-actions outside page-display to ensure it's always in DOM -->
+                    <div id="page-view-actions" class="mt-4 text-right">
+                        <button id="edit-page-button" class="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md text-sm transition" style="display: none;">
+                            <i class="fas fa-edit mr-1"></i>Edit Page
+                        </button>
                     </div>
                     
                     <div id="page-edit-form-container" class="mt-8 p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md hidden">
@@ -467,24 +467,46 @@
 
         // Permission checking functions
         function hasPermission(permission, wikiId = null) {
-            if (!appState.currentUser) {
-                // If no user is logged in, only allow VIEW_PAGE for public wikis
-                return permission === PERMISSIONS.VIEW_PAGE && appState.currentWiki?.isPublic;
+            console.log(`[hasPermission] Checking permission: ${permission} for wiki: ${wikiId}`);
+            const currentUser = appState.currentUser; // Capture current user for consistency
+            console.log("[hasPermission] Captured Current User:", currentUser?.id || "None");
+
+            if (!currentUser) {
+                const result = permission === PERMISSIONS.VIEW_PAGE && appState.currentWiki?.isPublic;
+                console.log(`[hasPermission] No user logged in. Public wiki view allowed: ${result}`);
+                return result;
             }
             
-            // Find the current user's role for the specific wiki
-            const userWikiRole = (appState.currentWiki?.users || []).find(u => u.userId === appState.currentUser.id)?.role;
+            if (!appState.currentWiki) {
+                console.log("[hasPermission] No current wiki selected. Cannot grant wiki-specific permissions.");
+                return false;
+            }
+
+            const usersInCurrentWiki = appState.currentWiki.users || [];
+            
+            const userWikiRole = usersInCurrentWiki.find(u => {
+                // Defensive check: if currentUser somehow becomes null here, prevent error
+                if (!currentUser) {
+                    console.warn("[hasPermission] currentUser became null inside find callback unexpectedly.");
+                    return false; // Cannot match if currentUser is null
+                }
+                return u.userId === currentUser.id;
+            })?.role;
+            
+            console.log("[hasPermission] User Wiki Role:", userWikiRole);
 
             if (userWikiRole) {
-                return ROLE_PERMISSIONS[userWikiRole] && ROLE_PERMISSIONS[userWikiRole].includes(permission);
+                const result = ROLE_PERMISSIONS[userWikiRole] && ROLE_PERMISSIONS[userWikiRole].includes(permission);
+                console.log(`[hasPermission] User has role '${userWikiRole}'. Permission granted: ${result}`);
+                return result;
             }
             
-            // If it's a public wiki and the permission is just to view, allow it
-            // This case is now covered by the initial !appState.currentUser check, but kept for clarity if logic changes.
-            if (permission === PERMISSIONS.VIEW_PAGE && appState.currentWiki?.isPublic) {
-                return true;
+            if (permission === PERMISSIONS.VIEW_PAGE && appState.currentWiki.isPublic) {
+                 console.log(`[hasPermission] User logged in but no specific role in this wiki. Public wiki view allowed: true`);
+                 return true;
             }
 
+            console.log("[hasPermission] Permission denied by default.");
             return false;
         }
 
@@ -505,6 +527,10 @@
         // --- Utility Functions ---
         function updateAppState(newValues) {
             Object.assign(appState, newValues);
+            console.log("--- App State Updated ---");
+            console.log("Current User:", appState.currentUser?.id);
+            console.log("Current Wiki:", appState.currentWiki?.id || "None");
+            console.log("Current Page:", appState.currentPage?.id || "None");
             renderApp(); // This function should re-render UI based on appState
         }
 
@@ -702,14 +728,23 @@
         }
 
         function selectPage(pageId) {
-            if (!appState.currentWiki) return;
+            console.log(`Attempting to select page: ${pageId}`);
+            if (!appState.currentWiki) {
+                console.log("No current wiki selected.");
+                return;
+            }
             const selectedPage = appState.currentWiki.pages.find(page => page.id === pageId);
             if (selectedPage) {
+                console.log("Page found:", selectedPage.title);
                 if (!hasPermission(PERMISSIONS.VIEW_PAGE, appState.currentWiki.id)) {
                     displayMessage('You do not have permission to view this page.', 'error');
+                    console.warn("Permission denied for viewing page.");
                     return;
                 }
                 updateAppState({ currentPage: selectedPage });
+                console.log("Page selected and app state updated.");
+            } else {
+                console.log("Page not found in current wiki.");
             }
             // Close sidebar on mobile after selecting a page
             if (window.innerWidth < 1024) { 
@@ -997,15 +1032,21 @@
 
 
         function renderPageContent() {
+            console.log("Rendering page content...");
             const pageDisplay = document.getElementById('page-display');
             const pageEditFormContainer = document.getElementById('page-edit-form-container');
             const editPageButton = document.getElementById('edit-page-button'); // Get the new button
 
-            if (!pageDisplay || !pageEditFormContainer || !editPageButton) return; // Null checks
+            if (!pageDisplay || !pageEditFormContainer || !editPageButton) {
+                console.error("Missing page content elements.");
+                return; // Null checks
+            }
 
             if (appState.currentPage) {
+                console.log("appState.currentPage is set:", appState.currentPage.title);
                 // Check if the user has permission to view the current page
                 if (hasPermission(PERMISSIONS.VIEW_PAGE, appState.currentWiki?.id)) {
+                    console.log("User has VIEW_PAGE permission.");
                     pageDisplay.innerHTML = marked.parse(appState.currentPage.content || 'No content for this page.');
                     pageDisplay.classList.remove('hidden');
                     pageEditFormContainer.classList.add('hidden');
@@ -1013,16 +1054,20 @@
                     // Show/hide edit button based on permissions
                     if (hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id)) {
                         editPageButton.style.display = 'inline-block';
+                        console.log("Edit page button shown.");
                     } else {
                         editPageButton.style.display = 'none';
+                        console.log("Edit page button hidden (no edit permission).");
                     }
                 } else {
+                    console.warn("User does NOT have VIEW_PAGE permission for this page.");
                     pageDisplay.innerHTML = '<p class="text-red-500 dark:text-red-400">You do not have permission to view this page.</p>';
                     pageDisplay.classList.remove('hidden');
                     pageEditFormContainer.classList.add('hidden');
                     editPageButton.style.display = 'none'; // Hide edit button if no view permission
                 }
             } else {
+                console.log("appState.currentPage is NOT set.");
                 pageDisplay.innerHTML = '<p class="text-gray-600 dark:text-gray-400">Select a page or create a new one.</p>';
                 pageDisplay.classList.remove('hidden');
                 pageEditFormContainer.classList.add('hidden');
@@ -1650,6 +1695,7 @@
         }
 
         async function deleteCategory(categoryToDelete) {
+            event.preventDefault(); // Prevent default form submission if this is called from a form
             if (!appState.currentWiki || !appState.currentUser) {
                 displayMessage('No wiki selected.', 'error');
                 return;
