@@ -270,6 +270,11 @@
                     <input type="email" id="email" required autocomplete="email"
                            class="mt-1 block w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary">
                 </div>
+                <div id="display-name-group" class="hidden">
+                    <label for="display-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Display Name</label>
+                    <input type="text" id="display-name" autocomplete="name" placeholder="Your Name"
+                           class="mt-1 block w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary">
+                </div>
                 <div>
                     <label for="password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Password</label>
                     <input type="password" id="password" required autocomplete="current-password"
@@ -1346,7 +1351,7 @@
                     displayMessage('Page created successfully!', 'success');
                 }
                 // The onSnapshot listener for wikis/pages will re-fetch and update appState.wikis,
-                // which will then trigger renderPages and updateSidebarDisplay
+                // which will then trigger renderPages and and updateSidebarDisplay
                 hidePageEditForm(); // Hide form after saving
             } catch (error) {
                 console.error("Error saving page: ", error);
@@ -1659,12 +1664,14 @@
             const authTitle = document.getElementById('auth-title');
             const authSubmitButton = document.getElementById('auth-submit-button');
             const confirmPasswordGroup = document.getElementById('confirm-password-group');
+            const displayNameGroup = document.getElementById('display-name-group'); // New
             const toggleAuthModeButton = document.getElementById('toggle-auth-mode');
             const forgotPasswordButton = document.getElementById('forgot-password-button');
 
             if (authTitle) authTitle.textContent = isSignUpMode ? 'Sign Up' : 'Login';
             if (authSubmitButton) authSubmitButton.textContent = isSignUpMode ? 'Sign Up' : 'Login';
             if (confirmPasswordGroup) confirmPasswordGroup.classList.toggle('hidden', !isSignUpMode);
+            if (displayNameGroup) displayNameGroup.classList.toggle('hidden', !isSignUpMode); // New
             if (toggleAuthModeButton) toggleAuthModeButton.textContent = isSignUpMode ? "Already have an account? Log In" : "Don't have an account? Sign Up";
             if (forgotPasswordButton) forgotPasswordButton.classList.toggle('hidden', isSignUpMode);
         }
@@ -1674,6 +1681,7 @@
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
             const confirmPassword = document.getElementById('confirm-password').value;
+            const displayName = document.getElementById('display-name').value.trim(); // New
 
             if (isSignUpMode) {
                 if (password !== confirmPassword) {
@@ -1685,7 +1693,7 @@
                     // Store user profile in Firestore
                     await db.collection("users").doc(userCredential.user.uid).set({
                         email: userCredential.user.email,
-                        displayName: email.split('@')[0], // Default display name from email
+                        displayName: displayName || email.split('@')[0], // Use provided display name or default
                         bio: '', // Default empty bio
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                         lastLogin: firebase.firestore.FieldValue.serverTimestamp()
