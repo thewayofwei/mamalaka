@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WikiBuilder - Collaborative Wiki Platform</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+    <!-- Changed Marked.js CDN to a version known for global availability -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.0.0/marked.min.js"></script>
     
-    <!-- Updated Firebase SDK loads for global access (Compatibility build for v9.17.0) -->
     <script src="https://www.gstatic.com/firebasejs/9.17.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.17.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.17.0/firebase-firestore-compat.js"></script>
@@ -56,7 +56,7 @@
             <h1 class="text-2xl font-bold tracking-tight">WikiBuilder</h1>
         </div>
         <div class="flex items-center space-x-4">
-            <input type="text" id="wiki-search" placeholder="Search wikis..."
+            <input type="text" id="wiki-search" placeholder="Search wikis and users..."
                    class="px-3 py-1 rounded-md bg-white bg-opacity-20 text-white placeholder-white focus:outline-none focus:ring-2 focus:ring-white focus:bg-opacity-30 transition hidden lg:block">
             <button id="dark-mode-toggle" class="p-2 rounded-full hover:bg-white hover:bg-opacity-20 focus:outline-none transition">
                 <i class="fas fa-moon text-xl dark:hidden"></i>
@@ -72,6 +72,7 @@
                     <i class="fas fa-chevron-down text-xs ml-1"></i>
                 </button>
                 <div class="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 hidden group-hover:block transition-opacity duration-200 ease-in-out opacity-0 group-hover:opacity-100">
+                    <button id="my-profile-button" class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">My Profile</button>
                     <button id="logout-button" class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Logout</button>
                 </div>
             </div>
@@ -79,7 +80,6 @@
     </header>
 
     <main class="flex flex-1 overflow-hidden">
-        <!-- Sidebar -->
         <aside id="sidebar" class="bg-gray-200 dark:bg-gray-800 w-64 flex flex-col p-4 shadow-lg overflow-y-auto transform -translate-x-full lg:translate-x-0 transition-transform duration-300 ease-in-out z-20 absolute lg:relative lg:!block">
             <div class="flex justify-between items-center mb-4 lg:hidden">
                 <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">Wikis</h2>
@@ -92,15 +92,23 @@
                 <span>New Wiki</span>
             </button>
             <div class="mb-4 lg:hidden">
-                <input type="text" id="mobile-wiki-search" placeholder="Search wikis..."
+                <input type="text" id="mobile-wiki-search" placeholder="Search wikis and users..."
                        class="px-3 py-2 w-full rounded-md bg-gray-300 dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary">
             </div>
+            <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-2">Wikis</h3>
             <ul id="wiki-list" class="flex-1 space-y-2">
-                <!-- Wiki items will be rendered here -->
                 <li class="text-gray-600 dark:text-gray-400">No wikis available.</li>
             </ul>
             
-            <!-- Current Wiki Info in Sidebar -->
+            <!-- New section for User Search Results -->
+            <div id="user-search-results-container" class="mt-6 hidden">
+                <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-2">Users</h3>
+                <ul id="user-search-list" class="space-y-2">
+                    <!-- User search results will be rendered here -->
+                </ul>
+                <p id="no-user-results-message" class="text-gray-600 dark:text-gray-400 hidden">No users found.</p>
+            </div>
+
             <div id="current-wiki-sidebar-info" class="mt-6 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg hidden">
                 <h3 class="font-semibold text-gray-800 dark:text-gray-100 mb-2">Current Wiki</h3>
                 <p id="sidebar-wiki-name" class="text-lg font-medium text-primary dark:text-white"></p>
@@ -110,12 +118,10 @@
                 </button>
                 <h4 class="font-semibold text-gray-800 dark:text-gray-100 mt-4 mb-2">Pages</h4>
                 <ul id="sidebar-pages-list" class="space-y-1">
-                    <!-- Pages for current wiki will be rendered here -->
-                </ul>
+                    </ul>
             </div>
         </aside>
 
-        <!-- Main Content Area -->
         <section id="app-section" class="flex-1 flex flex-col overflow-hidden">
             <div id="wiki-header" class="bg-white dark:bg-gray-800 p-4 border-b border-gray-200 dark:border-gray-700 shadow-sm flex items-center justify-between z-0">
                 <div>
@@ -136,13 +142,11 @@
             </div>
 
             <div class="flex flex-1 overflow-hidden">
-                <!-- Page Content Area -->
                 <div id="page-content-area" class="flex-1 p-6 overflow-y-auto">
                     <div id="page-display" class="prose dark:prose-invert max-w-none">
                         <p class="text-gray-600 dark:text-gray-400">Select a page from the left to view its content, or create a new page.</p>
                     </div>
                     
-                    <!-- Page Edit Form -->
                     <div id="page-edit-form-container" class="mt-8 p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md hidden">
                         <h3 class="text-xl font-semibold mb-4" id="edit-form-title">Edit Page</h3>
                         <form id="page-form">
@@ -172,7 +176,6 @@
         </section>
     </main>
 
-    <!-- Modals -->
     <div id="createWikiModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
             <h2 class="text-2xl font-bold mb-4">Create New Wiki</h2>
@@ -205,7 +208,6 @@
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md">
             <h2 class="text-2xl font-bold mb-4">Manage Wiki Users</h2>
             <div id="user-list-container" class="mb-4 max-h-60 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-md p-2">
-                <!-- Current users will be listed here -->
                 <p id="no-users-message" class="text-gray-600 dark:text-gray-400">No users added to this wiki yet.</p>
             </div>
             <form id="add-user-form" class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 mb-4">
@@ -223,7 +225,6 @@
         </div>
     </div>
 
-    <!-- Auth Modal -->
     <div id="authModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
         <div class="w-full max-w-md bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 relative">
             <button onclick="hideModal('authModal')" class="absolute top-3 right-3 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-2xl">
@@ -262,9 +263,68 @@
         </div>
     </div>
 
-    <div id="message-container" class="fixed bottom-4 right-4 z-50">
-        <!-- Messages will appear here -->
+    <div id="myProfileModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md relative">
+            <button onclick="hideModal('myProfileModal')" class="absolute top-3 right-3 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-2xl">
+                <i class="fas fa-times"></i>
+            </button>
+            <h2 class="text-2xl font-bold mb-4">My Profile</h2>
+            <form id="my-profile-form">
+                <div class="mb-4">
+                    <label for="profile-email" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+                    <input type="email" id="profile-email" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 cursor-not-allowed" readonly>
+                </div>
+                <div class="mb-4">
+                    <label for="profile-display-name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name</label>
+                    <input type="text" id="profile-display-name" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary">
+                </div>
+                <div class="mb-4">
+                    <label for="profile-bio" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bio</label>
+                    <textarea id="profile-bio" rows="5" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary"></textarea>
+                </div>
+                <div class="flex justify-end space-x-2">
+                    <button type="submit" class="bg-primary hover:bg-primary-dark text-white font-bold py-2 px-4 rounded-md">Save Profile</button>
+                    <button type="button" onclick="hideModal('myProfileModal')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md">Cancel</button>
+                </div>
+            </form>
+        </div>
     </div>
+
+    <div id="viewUserProfileModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md relative">
+            <button onclick="hideModal('viewUserProfileModal')" class="absolute top-3 right-3 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-2xl">
+                <i class="fas fa-times"></i>
+            </button>
+            <h2 class="text-2xl font-bold mb-4" id="view-profile-display-name">User Profile</h2>
+            <div class="mb-4">
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Email:</p>
+                <p id="view-profile-email" class="text-gray-900 dark:text-gray-100"></p>
+            </div>
+            <div class="mb-4">
+                <p class="text-sm font-medium text-gray-700 dark:text-gray-300">Bio:</p>
+                <p id="view-profile-bio" class="text-gray-900 dark:text-gray-100 whitespace-pre-wrap"></p>
+            </div>
+            <div class="flex justify-end">
+                <button type="button" onclick="hideModal('viewUserProfileModal')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Confirmation Modal -->
+    <div id="confirmationModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-sm relative">
+            <h2 class="text-xl font-bold mb-4" id="confirmation-title">Confirm Action</h2>
+            <p id="confirmation-message" class="mb-6 text-gray-700 dark:text-gray-300">Are you sure you want to proceed?</p>
+            <div class="flex justify-end space-x-2">
+                <button id="confirm-yes-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md">Yes</button>
+                <button id="confirm-no-button" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md">No</button>
+            </div>
+        </div>
+    </div>
+
+
+    <div id="message-container" class="fixed bottom-4 right-4 z-50">
+        </div>
 
     <script>
         // Firebase setup
@@ -431,6 +491,150 @@
             }
         }
 
+        // --- Custom Confirmation Modal Logic ---
+        let resolveConfirmationPromise;
+
+        function showConfirmationModal(title, message) {
+            document.getElementById('confirmation-title').textContent = title;
+            document.getElementById('confirmation-message').textContent = message;
+            showModal('confirmationModal');
+
+            return new Promise((resolve) => {
+                resolveConfirmationPromise = resolve;
+            });
+        }
+
+        function hideConfirmationModal() {
+            hideModal('confirmationModal');
+        }
+
+        // Event listeners for the custom confirmation modal buttons
+        document.getElementById('confirm-yes-button')?.addEventListener('click', () => {
+            hideConfirmationModal();
+            if (resolveConfirmationPromise) {
+                resolveConfirmationPromise(true);
+            }
+        });
+
+        document.getElementById('confirm-no-button')?.addEventListener('click', () => {
+            hideConfirmationModal();
+            if (resolveConfirmationPromise) {
+                resolveConfirmationPromise(false);
+            }
+        });
+
+
+        // --- Routing Logic ---
+        function handleUrlChange() {
+            const hash = window.location.hash;
+            appState.searchTerm = ''; // Clear search term when navigating via URL hash
+            document.getElementById('wiki-search').value = '';
+            document.getElementById('mobile-wiki-search').value = '';
+
+            hideAllContentExceptMain(); // Reset visibility for main content areas
+
+            if (hash.startsWith('#wiki/')) {
+                const wikiId = hash.substring(6); // Remove '#wiki/'
+                const selectedWiki = appState.wikis.find(w => w.id === wikiId);
+                if (selectedWiki) {
+                    updateAppState({ currentWiki: selectedWiki, currentPage: null });
+                    // Attempt to select the home page or the first page if available
+                    const homePage = selectedWiki.pages.find(page => page.title === 'Home Page');
+                    if (homePage) {
+                        updateAppState({ currentPage: homePage });
+                    } else if (selectedWiki.pages.length > 0) {
+                        updateAppState({ currentPage: selectedWiki.pages[0] });
+                    } else {
+                        updateAppState({ currentPage: null });
+                    }
+                    document.getElementById('app-section').classList.remove('hidden'); // Ensure main app section is visible
+                    hideModal('viewUserProfileModal'); // Hide user profile modal if open
+                    hideModal('myProfileModal'); // Hide my profile modal if open
+                    hideModal('authModal'); // Hide auth modal if open
+                    document.getElementById('user-search-results-container').classList.add('hidden'); // Hide user search results
+                    document.getElementById('current-wiki-sidebar-info').classList.remove('hidden'); // Show current wiki info
+                } else {
+                    displayMessage('Wiki not found.', 'error');
+                    navigateToDefaultView();
+                }
+            } else if (hash.startsWith('#users/')) {
+                const userId = hash.substring(7); // Remove '#users/'
+                const user = appState.users.find(u => u.id === userId);
+                if (user) {
+                    // Directly call viewUserProfile which handles showing the modal
+                    viewUserProfile(userId); 
+                    // Hide main wiki content when user profile is shown
+                    document.getElementById('wiki-header').classList.add('hidden');
+                    document.getElementById('page-display').classList.add('hidden');
+                    document.getElementById('page-edit-form-container').classList.add('hidden');
+                    document.getElementById('current-wiki-sidebar-info').classList.add('hidden');
+                    document.getElementById('user-search-results-container').classList.add('hidden');
+                } else {
+                    displayMessage('User not found.', 'error');
+                    navigateToDefaultView();
+                }
+            } else {
+                navigateToDefaultView();
+            }
+            renderApp(); // Re-render the app after handling URL change
+        }
+
+        function navigateToDefaultView() {
+            updateAppState({ currentWiki: null, currentPage: null, searchTerm: '' });
+            // Ensure all main content elements are visible for the default view
+            document.getElementById('wiki-header').classList.remove('hidden');
+            document.getElementById('page-display').classList.remove('hidden');
+            document.getElementById('page-edit-form-container').classList.add('hidden'); // Always hide editor by default
+            document.getElementById('user-search-results-container').classList.add('hidden'); // Hide user search results
+            document.getElementById('current-wiki-sidebar-info').classList.add('hidden'); // Hide wiki info in sidebar
+            hideModal('viewUserProfileModal');
+            hideModal('myProfileModal');
+            hideModal('authModal');
+            // Set hash to empty to reflect default view
+            if (window.location.hash !== '') {
+                window.location.hash = '';
+            }
+        }
+
+        // Helper to hide main content sections when a modal is open or a specific view is active
+        function hideAllContentExceptMain() {
+            document.getElementById('wiki-header').classList.remove('hidden'); // Always show header
+            document.getElementById('page-display').classList.remove('hidden'); // Show page display by default
+            document.getElementById('page-edit-form-container').classList.add('hidden'); // Hide editor
+            document.getElementById('user-search-results-container').classList.add('hidden'); // Hide user search results
+            document.getElementById('current-wiki-sidebar-info').classList.add('hidden'); // Hide wiki info in sidebar
+        }
+
+        // Modify existing functions to use hash
+        function selectWiki(wikiId) {
+            window.location.hash = `wiki/${wikiId}`;
+            // Close sidebar on mobile after selecting a wiki
+            if (window.innerWidth < 1024) { 
+                toggleSidebar();
+            }
+        }
+
+        async function viewUserProfile(userId) {
+            try {
+                const userDoc = await db.collection("users").doc(userId).get();
+                if (userDoc.exists) {
+                    const userData = userDoc.data();
+                    document.getElementById('view-profile-display-name').textContent = userData.displayName || userData.email;
+                    document.getElementById('view-profile-email').textContent = userData.email || 'N/A';
+                    document.getElementById('view-profile-bio').textContent = userData.bio || 'No bio provided.';
+                    showModal('viewUserProfileModal');
+                } else {
+                    displayMessage('User profile not found.', 'error');
+                    navigateToDefaultView(); // Go back to default if user not found
+                }
+            } catch (error) {
+                console.error("Error fetching user profile:", error);
+                displayMessage('Failed to load user profile. ' + error.message, 'error');
+                navigateToDefaultView(); // Go back to default on error
+            }
+        }
+
+
         // --- Rendering Functions ---
         function renderApp() {
             document.documentElement.classList.toggle('dark', appState.isDarkMode);
@@ -449,15 +653,13 @@
                 if (userInfo) userInfo.style.display = 'flex';
                 if (loginSignupButton) loginSignupButton.style.display = 'none';
                 if (createWikiButton) createWikiButton.style.display = 'flex'; // Show create wiki button
+                document.getElementById('user-display-name').textContent = appState.currentUser.displayName || appState.currentUser.email;
+
             } else {
                 if (userInfo) userInfo.style.display = 'none';
                 if (loginSignupButton) loginSignupButton.style.display = 'block';
                 if (createWikiButton) createWikiButton.style.display = 'none'; // Hide create wiki button
             }
-
-            // Always show app-section, auth is now a modal
-            // document.getElementById('app-section').classList.remove('hidden'); 
-            // document.getElementById('auth-section').classList.add('hidden'); // This element is now a modal
 
             renderWikis();
             renderPageContent(); // Ensure page content is rendered
@@ -465,6 +667,7 @@
             renderWikiActions(); // Render wiki action buttons
             renderManageUsersModal(); // Update user management modal
             updateSidebarDisplay(); // Update sidebar visibility and content
+            renderUserSearchResults(); // Call new function to render user search results
 
             // Hide/show action buttons based on permissions
             if (sidebarAddPageButton) sidebarAddPageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) ? 'block' : 'none';
@@ -488,7 +691,8 @@
             const sidebarAddPageButton = document.getElementById('sidebar-add-page-button');
 
             if (currentWikiSidebarInfo) { // Add null check
-                if (appState.currentWiki && canAccessWiki(appState.currentWiki)) {
+                // Only show wiki info if a wiki is selected AND no search term is active
+                if (appState.currentWiki && canAccessWiki(appState.currentWiki) && !appState.searchTerm) {
                     currentWikiSidebarInfo.classList.remove('hidden');
                     document.getElementById('sidebar-wiki-name').textContent = appState.currentWiki.name;
                     document.getElementById('sidebar-wiki-description').textContent = appState.currentWiki.description;
@@ -526,25 +730,73 @@
                 (wiki.description || '').toLowerCase().includes(appState.searchTerm.toLowerCase()))
             );
 
-            if (filteredWikis.length === 0) {
+            if (filteredWikis.length === 0 && !appState.searchTerm) {
                 wikiList.innerHTML = '<li class="text-gray-600 dark:text-gray-400">No wikis available.</li>';
                 return;
+            } else if (filteredWikis.length === 0 && appState.searchTerm) {
+                 wikiList.innerHTML = '<li class="text-gray-600 dark:text-gray-400">No wikis match your search.</li>';
+                 return;
             }
+
 
             filteredWikis.forEach(wiki => {
                 const wikiElement = document.createElement('li');
-                wikiElement.className = `p-3 rounded-md cursor-pointer flex items-center space-x-3 transition hover:bg-gray-300 dark:hover:bg-gray-700 ${appState.currentWiki && appState.currentWiki.id === wiki.id ? 'bg-primary text-white hover:!bg-primary-dark' : 'bg-gray-100 dark:bg-gray-700'}`;
+                // Only highlight if no search term is active and it's the current wiki
+                wikiElement.className = `p-3 rounded-md cursor-pointer flex items-center space-x-3 transition hover:bg-gray-300 dark:hover:bg-gray-700 ${appState.currentWiki && appState.currentWiki.id === wiki.id && !appState.searchTerm ? 'bg-primary text-white hover:!bg-primary-dark' : 'bg-gray-100 dark:bg-gray-700'}`;
                 wikiElement.innerHTML = `
                     <span class="text-2xl">${wiki.icon || '📚'}</span>
                     <div class="flex-1">
-                        <div class="font-semibold text-lg ${appState.currentWiki && appState.currentWiki.id === wiki.id ? 'text-white' : 'text-gray-800 dark:text-gray-100'}">${wiki.name}</div>
-                        <div class="text-sm ${appState.currentWiki && appState.currentWiki.id === wiki.id ? 'text-gray-200' : 'text-gray-600 dark:text-gray-400'}">${wiki.description}</div>
+                        <div class="font-semibold text-lg ${appState.currentWiki && appState.currentWiki.id === wiki.id && !appState.searchTerm ? 'text-white' : 'text-gray-800 dark:text-gray-100'}">${wiki.name}</div>
+                        <div class="text-sm ${appState.currentWiki && appState.currentWiki.id === wiki.id && !appState.searchTerm ? 'text-gray-200' : 'text-gray-600 dark:text-gray-400'}">${wiki.description}</div>
                     </div>
                 `;
                 wikiElement.onclick = () => selectWiki(wiki.id);
                 wikiList.appendChild(wikiElement);
             });
         }
+
+        function renderUserSearchResults() {
+            const userSearchResultsContainer = document.getElementById('user-search-results-container');
+            const userSearchList = document.getElementById('user-search-list');
+            const noUserResultsMessage = document.getElementById('no-user-results-message');
+
+            if (!userSearchResultsContainer || !userSearchList || !noUserResultsMessage) return;
+
+            userSearchList.innerHTML = ''; // Clear previous results
+
+            if (!appState.searchTerm) {
+                userSearchResultsContainer.classList.add('hidden');
+                return;
+            }
+
+            const searchTermLower = appState.searchTerm.toLowerCase();
+            const filteredUsers = appState.users.filter(user =>
+                (user.displayName && user.displayName.toLowerCase().includes(searchTermLower)) ||
+                (user.email && user.email.toLowerCase().includes(searchTermLower))
+            );
+
+            if (filteredUsers.length === 0) {
+                userSearchResultsContainer.classList.remove('hidden');
+                noUserResultsMessage.classList.remove('hidden');
+            } else {
+                noUserResultsMessage.classList.add('hidden');
+                userSearchResultsContainer.classList.remove('hidden');
+                filteredUsers.forEach(user => {
+                    const userElement = document.createElement('li');
+                    userElement.className = `p-3 rounded-md cursor-pointer flex items-center space-x-3 transition hover:bg-gray-300 dark:hover:bg-gray-700 bg-gray-100 dark:bg-gray-700`;
+                    userElement.innerHTML = `
+                        <i class="fas fa-user-circle text-xl text-gray-600 dark:text-gray-300"></i>
+                        <div class="flex-1">
+                            <div class="font-semibold text-lg text-gray-800 dark:text-gray-100">${user.displayName || user.email}</div>
+                            <div class="text-sm text-gray-600 dark:text-gray-400">${user.email}</div>
+                        </div>
+                    `;
+                    userElement.onclick = () => window.location.hash = `users/${user.id}`; // Update hash for user profile
+                    userSearchList.appendChild(userElement);
+                });
+            }
+        }
+
 
         function renderPageContent() {
             const pageDisplay = document.getElementById('page-display');
@@ -675,10 +927,10 @@
                 userElement.className = 'flex justify-between items-center bg-gray-100 dark:bg-gray-700 p-2 rounded-md mb-2';
                 // Find user from the dynamically loaded appState.users
                 const user = appState.users.find(u => u.id === wikiUser.userId);
-                const userName = user ? user.email : wikiUser.userId; // Fallback to ID if user not found in appState.users
+                const userName = user?.displayName || user?.email || wikiUser.userId; // Use display name, then email, then ID
 
                 userElement.innerHTML = `
-                    <span>${userName} (${wikiUser.role})</span>
+                    <span class="cursor-pointer hover:underline" onclick="window.location.hash = 'users/${wikiUser.userId}'">${userName} (${wikiUser.role})</span>
                     ${hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki.id) && wikiUser.userId !== appState.currentUser?.id ? `
                     <button class="remove-user-button bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded" data-user-id="${wikiUser.userId}">Remove</button>
                     ` : ''}
@@ -809,50 +1061,6 @@
         }
 
 
-        async function selectWiki(wikiId) {
-            const selectedWiki = appState.wikis.find(wiki => wiki.id === wikiId);
-            if (!selectedWiki) {
-                displayMessage('Wiki not found.', 'error');
-                return;
-            }
-
-            if (!canAccessWiki(selectedWiki)) {
-                displayMessage('You do not have permission to access this wiki.', 'error');
-                updateAppState({ currentWiki: null, currentPage: null });
-                return;
-            }
-
-            updateAppState({ currentWiki: selectedWiki, currentPage: null });
-
-            // Attempt to select the home page or the first page if available
-            const homePage = selectedWiki.pages.find(page => page.title === 'Home Page');
-            if (homePage) {
-                selectPage(homePage.id);
-            } else if (selectedWiki.pages.length > 0) {
-                selectPage(selectedWiki.pages[0].id);
-            } else {
-                updateAppState({ currentPage: null });
-                renderPageContent(); // Clear content area
-            }
-            // Close sidebar on mobile after selecting a wiki
-            if (window.innerWidth < 1024) { 
-                toggleSidebar();
-            }
-        }
-
-        function selectPage(pageId) {
-            if (!appState.currentWiki) return;
-            const selectedPage = appState.currentWiki.pages.find(page => page.id === pageId);
-            if (selectedPage) {
-                if (!hasPermission(PERMISSIONS.VIEW_PAGE, appState.currentWiki.id)) {
-                    displayMessage('You do not have permission to view this page.', 'error');
-                    return;
-                }
-                updateAppState({ currentPage: selectedPage });
-                renderPageContent();
-            }
-        }
-
         async function savePage(event) {
             event.preventDefault();
             if (!appState.currentWiki || !appState.currentUser) {
@@ -920,7 +1128,12 @@
                 return;
             }
 
-            if (!confirm(`Are you sure you want to delete the wiki "${appState.currentWiki.name}" and all its pages? This action cannot be undone.`)) {
+            const confirmed = await showConfirmationModal(
+                'Delete Wiki',
+                `Are you sure you want to delete the wiki "${appState.currentWiki.name}" and all its pages? This action cannot be undone.`
+            );
+
+            if (!confirmed) {
                 return;
             }
 
@@ -959,7 +1172,12 @@
                 return;
             }
 
-            if (!confirm(`Are you sure you want to delete this page "${appState.currentPage.title}"? This action cannot be undone.`)) {
+            const confirmed = await showConfirmationModal(
+                'Delete Page',
+                `Are you sure you want to delete this page "${appState.currentPage.title}"? This action cannot be undone.`
+            );
+
+            if (!confirmed) {
                 return;
             }
 
@@ -1079,7 +1297,12 @@
                 return;
             }
 
-            if (!confirm('Are you sure you want to remove this user from the wiki?')) {
+            const confirmed = await showConfirmationModal(
+                'Remove User',
+                'Are you sure you want to remove this user from the wiki?'
+            );
+
+            if (!confirmed) {
                 return;
             }
 
@@ -1140,7 +1363,8 @@
                     // Store user profile in Firestore
                     await db.collection("users").doc(userCredential.user.uid).set({
                         email: userCredential.user.email,
-                        name: email.split('@')[0], // Default name from email
+                        displayName: email.split('@')[0], // Default display name from email
+                        bio: '', // Default empty bio
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                         lastLogin: firebase.firestore.FieldValue.serverTimestamp()
                     });
@@ -1199,6 +1423,49 @@
             }
         }
 
+        // --- User Profile Functions ---
+        function showMyProfileModal() {
+            if (!appState.currentUser) {
+                displayMessage('You must be logged in to view your profile.', 'error');
+                return;
+            }
+            const profileEmailInput = document.getElementById('profile-email');
+            const profileDisplayNameInput = document.getElementById('profile-display-name');
+            const profileBioTextarea = document.getElementById('profile-bio');
+
+            if (profileEmailInput) profileEmailInput.value = appState.currentUser.email || '';
+            if (profileDisplayNameInput) profileDisplayNameInput.value = appState.currentUser.displayName || '';
+            if (profileBioTextarea) profileBioTextarea.value = appState.currentUser.bio || '';
+
+            showModal('myProfileModal');
+        }
+
+        async function saveMyProfile(event) {
+            event.preventDefault();
+            if (!appState.currentUser) {
+                displayMessage('You must be logged in to save your profile.', 'error');
+                return;
+            }
+
+            const displayName = document.getElementById('profile-display-name').value.trim();
+            const bio = document.getElementById('profile-bio').value.trim();
+
+            try {
+                await db.collection("users").doc(appState.currentUser.id).update({
+                    displayName: displayName,
+                    bio: bio
+                });
+                displayMessage('Profile updated successfully!', 'success');
+                hideModal('myProfileModal');
+                // The onAuthStateChanged listener will re-fetch the updated user data
+                // and renderApp will update the display name in the header.
+            } catch (error) {
+                console.error("Error updating profile:", error);
+                displayMessage('Failed to update profile: ' + error.message, 'error');
+            }
+        }
+
+
         // --- Event Listeners ---
         document.addEventListener('DOMContentLoaded', () => {
             // Initial dark mode setup
@@ -1215,17 +1482,18 @@
                     try {
                         const userDoc = await db.collection("users").doc(user.uid).get();
                         if (userDoc.exists) {
-                            const userData = { id: userDoc.id, ...userDoc.data() };
+                            const userData = { id: user.uid, ...userDoc.data() }; // Ensure ID is included
                             updateAppState({ currentUser: userData });
-                            displayMessage(`Welcome, ${userData.name || userData.email}!`, 'success');
+                            displayMessage(`Welcome, ${userData.displayName || userData.email}!`, 'success');
                         } else {
                             // This case might happen if user was created via Firebase Console directly
                             // without a corresponding Firestore 'users' document.
-                            // Create a basic user document if it doesn't exist.
+                            // Create a basic user document if it's not present.
                             console.warn("User profile not found in Firestore for UID:", user.uid, "Creating a basic one.");
                             const basicUserData = {
                                 email: user.email,
-                                name: user.email.split('@')[0],
+                                displayName: user.email.split('@')[0], // Default display name
+                                bio: '', // Default empty bio
                                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                                 lastLogin: firebase.firestore.FieldValue.serverTimestamp()
                             };
@@ -1247,7 +1515,7 @@
                     loadWikisAndPages(); // Load wikis even if not authenticated (only public ones will show)
                 }
                 updateAuthForm(); // Ensure auth form view is correct
-                renderApp(); // Render the UI based on the new appState
+                handleUrlChange(); // This will render the correct view based on URL
             });
 
             // UI Event Listeners
@@ -1286,18 +1554,29 @@
             document.getElementById('add-user-form')?.addEventListener('submit', addUserToWiki);
             document.getElementById('delete-wiki-button')?.addEventListener('click', deleteWiki);
 
+            // Profile related event listeners
+            document.getElementById('my-profile-button')?.addEventListener('click', showMyProfileModal);
+            document.getElementById('my-profile-form')?.addEventListener('submit', saveMyProfile);
+
             // Search functionality
             document.getElementById('wiki-search')?.addEventListener('input', (e) => {
                 appState.searchTerm = e.target.value;
                 renderWikis();
+                renderUserSearchResults(); // Call to render user search results
+                updateSidebarDisplay(); // Update sidebar display to hide wiki info if searching
             });
             document.getElementById('mobile-wiki-search')?.addEventListener('input', (e) => {
                 appState.searchTerm = e.target.value;
                 renderWikis();
+                renderUserSearchResults(); // Call to render user search results
+                updateSidebarDisplay(); // Update sidebar display to hide wiki info if searching
             });
             
             // The event listener for page-content-editor is now handled inside showPageEditForm()
             // This ensures the element exists when the listener is attached.
+
+            // Add hashchange listener
+            window.addEventListener('hashchange', handleUrlChange);
         });
     </script>
 </body>
