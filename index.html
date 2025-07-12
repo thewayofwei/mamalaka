@@ -387,7 +387,7 @@
             // Your Firebase project configuration
             // IMPORTANT: Replace with your actual Firebase config from your project settings
             // This is crucial for Firebase to work correctly.
-            apiKey: "AIzaSyBKcmEczz9H0OiPvAe3PkzEvbfcMNyjKm8",
+            apiKey: "AIzaSyBKcmEczz9H0OiPvAe3PkzEvbfcMNyjKm8", // REPLACE WITH YOUR ACTUAL API KEY
             authDomain: "mamalaka-wiki.firebaseapp.com",
             projectId: "mamalaka-wiki",
             storageBucket: "mamalaka-wiki.firebasestorage.app",
@@ -419,7 +419,9 @@
             sidebarOpen: false, // Start sidebar closed for mobile
             isDarkMode: window.matchMedia('(prefers-color-scheme: dark)').matches, // Initialize based on system preference
             currentCategory: null, // New state for category filtering
-            isLoading: true // New loading state
+            isLoading: true, // New loading state
+            wikiUnsubscribe: null, // To store the unsubscribe function for wikis
+            usersUnsubscribe: null // To store the unsubscribe function for users
         };
 
         // User Roles and Permissions
@@ -465,11 +467,42 @@
             ]
         };
 
+        // Function to check if the current user is a super admin
+        // This checks if their email exists in the 'superAdmins' collection
+        async function isCurrentUserSuperAdmin() {
+            if (!appState.currentUser) {
+                console.log("[isCurrentUserSuperAdmin] appState.currentUser is null. Cannot check super admin status.");
+                return false;
+            }
+            if (!appState.currentUser.email) { // Check for email instead of id
+                console.warn("[isCurrentUserSuperAdmin] appState.currentUser exists but has no 'email' property. CurrentUser:", appState.currentUser);
+                return false;
+            }
+            console.log("[isCurrentUserSuperAdmin] Checking email:", appState.currentUser.email);
+            try {
+                // Query the superAdmins collection for a document where the 'email' field matches the current user's email
+                const snapshot = await db.collection("superAdmins").where("email", "==", appState.currentUser.email).get();
+                const exists = !snapshot.empty;
+                console.log("[isCurrentUserSuperAdmin] SuperAdmin doc exists for", appState.currentUser.email, ":", exists);
+                return exists;
+            } catch (error) {
+                console.error("Error checking super admin status by email:", error);
+                return false;
+            }
+        }
+
         // Permission checking functions
-        function hasPermission(permission, wikiId = null) {
+        async function hasPermission(permission, wikiId = null) {
             console.log(`[hasPermission] Checking permission: ${permission} for wiki: ${wikiId}`);
             const currentUser = appState.currentUser; // Capture current user for consistency
-            console.log("[hasPermission] Captured Current User:", currentUser?.id || "None");
+            console.log("[hasPermission] Captured Current User ID:", currentUser?.id || "None");
+
+            // --- MASTER ACCOUNT CHECK ---
+            if (currentUser && await isCurrentUserSuperAdmin()) {
+                console.log("[hasPermission] Current user is SUPER_ADMIN. Granting permission.");
+                return true; // Super admin has all permissions
+            }
+            // --- END MASTER ACCOUNT CHECK ---
 
             if (!currentUser) {
                 const result = permission === PERMISSIONS.VIEW_PAGE && appState.currentWiki?.isPublic;
@@ -515,7 +548,11 @@
             return (appState.currentWiki.users || []).find(u => u.userId === appState.currentUser.id)?.role || null;
         }
 
-        function canAccessWiki(wiki) {
+        async function canAccessWiki(wiki) {
+            // Master account can access any wiki
+            if (appState.currentUser && await isCurrentUserSuperAdmin()) {
+                return true;
+            }
             if (!appState.currentUser) {
                 // If no user is logged in, only public wikis are accessible
                 return wiki.isPublic;
@@ -525,13 +562,14 @@
         }
 
         // --- Utility Functions ---
-        function updateAppState(newValues) {
+        async function updateAppState(newValues) { // Made async
             Object.assign(appState, newValues);
             console.log("--- App State Updated ---");
-            console.log("Current User:", appState.currentUser?.id);
+            console.log("Current User ID in appState:", appState.currentUser?.id); // Log the ID here
             console.log("Current Wiki:", appState.currentWiki?.id || "None");
             console.log("Current Page:", appState.currentPage?.id || "None");
-            renderApp(); // This function should re-render UI based on appState
+            console.log("Wikis in appState:", appState.wikis.length);
+            await renderApp(); // Await the rendering
         }
 
         function displayMessage(message, type = 'info', duration = 3000) {
@@ -627,7 +665,7 @@
 
 
         // --- Routing Logic ---
-        function handleUrlChange() {
+        async function handleUrlChange() { // Made async
             const hash = window.location.hash;
             appState.searchTerm = ''; // Clear search term when navigating via URL hash
             document.getElementById('wiki-search').value = '';
@@ -643,15 +681,15 @@
                 const selectedWiki = appState.wikis.find(w => w.id === wikiId);
                 if (selectedWiki) {
                     // Reset category filter when navigating to a wiki via URL
-                    updateAppState({ currentWiki: selectedWiki, currentPage: null, currentCategory: null });
+                    await updateAppState({ currentWiki: selectedWiki, currentPage: null, currentCategory: null }); // Await update
                     // Attempt to select the home page or the first page if available
                     const homePage = selectedWiki.pages.find(page => page.title === 'Home Page');
                     if (homePage) {
-                        updateAppState({ currentPage: homePage });
+                        await updateAppState({ currentPage: homePage }); // Await update
                     } else if (selectedWiki.pages.length > 0) {
-                        updateAppState({ currentPage: selectedWiki.pages[0] });
+                        await updateAppState({ currentPage: selectedWiki.pages[0] }); // Await update
                     } else {
-                        updateAppState({ currentPage: null });
+                        await updateAppState({ currentPage: null }); // Await update
                     }
                     document.getElementById('app-section').classList.remove('hidden'); // Ensure main app section is visible
                     hideModal('viewUserProfileModal'); // Hide user profile modal if open
@@ -668,7 +706,7 @@
                 const user = appState.users.find(u => u.id === userId);
                 if (user) {
                     // Directly call viewUserProfile which handles showing the modal
-                    viewUserProfile(userId); 
+                    await viewUserProfile(userId); // Await viewUserProfile
                     // Hide main wiki content when user profile is shown
                     document.getElementById('wiki-header').classList.add('hidden');
                     document.getElementById('page-display').classList.add('hidden');
@@ -682,24 +720,30 @@
             } else {
                 navigateToDefaultView();
             }
-            renderApp(); // Re-render the app after handling URL change
+            // renderApp() is now called by updateAppState, so no need to call it directly here.
+            // If navigateToDefaultView is called, it already calls updateAppState which calls renderApp.
         }
 
         function navigateToDefaultView() {
-            updateAppState({ currentWiki: null, currentPage: null, searchTerm: '', currentCategory: null }); // Reset category
-            // Ensure all main content elements are visible for the default view
-            document.getElementById('wiki-header').classList.remove('hidden');
-            document.getElementById('page-display').classList.remove('hidden');
-            document.getElementById('page-edit-form-container').classList.add('hidden'); // Always hide editor by default
-            document.getElementById('user-search-results-container').classList.add('hidden'); // Hide user search results
-            document.getElementById('current-wiki-sidebar-info').classList.add('hidden'); // Hide wiki info in sidebar
-            hideModal('viewUserProfileModal');
-            hideModal('myProfileModal');
-            hideModal('authModal');
-            // Set hash to empty to reflect default view
-            if (window.location.hash !== '') {
-                window.location.hash = '';
-            }
+            // This function is still synchronous, but it calls an async updateAppState.
+            // It's generally okay for top-level event handlers to not await,
+            // but for consistency and to ensure rendering completes, we can make it async.
+            (async () => {
+                await updateAppState({ currentWiki: null, currentPage: null, searchTerm: '', currentCategory: null }); // Reset category
+                // Ensure all main content elements are visible for the default view
+                document.getElementById('wiki-header').classList.remove('hidden');
+                document.getElementById('page-display').classList.remove('hidden');
+                document.getElementById('page-edit-form-container').classList.add('hidden'); // Always hide editor by default
+                document.getElementById('user-search-results-container').classList.add('hidden'); // Hide user search results
+                document.getElementById('current-wiki-sidebar-info').classList.add('hidden'); // Hide wiki info in sidebar
+                hideModal('viewUserProfileModal');
+                hideModal('myProfileModal');
+                hideModal('authModal');
+                // Set hash to empty to reflect default view
+                if (window.location.hash !== '') {
+                    window.location.hash = '';
+                }
+            })();
         }
 
         // Helper to hide main content sections when a modal is open or a specific view is active
@@ -712,7 +756,7 @@
         }
 
         // Modify existing functions to use hash
-        function selectWiki(wikiId) {
+        async function selectWiki(wikiId) { // Made async
             const wiki = appState.wikis.find(w => w.id === wikiId);
             if (wiki) {
                 window.location.hash = `wiki/${slugify(wiki.name)}-${wiki.id}`;
@@ -736,13 +780,16 @@
             const selectedPage = appState.currentWiki.pages.find(page => page.id === pageId);
             if (selectedPage) {
                 console.log("Page found:", selectedPage.title);
-                if (!hasPermission(PERMISSIONS.VIEW_PAGE, appState.currentWiki.id)) {
-                    displayMessage('You do not have permission to view this page.', 'error');
-                    console.warn("Permission denied for viewing page.");
-                    return;
-                }
-                updateAppState({ currentPage: selectedPage });
-                console.log("Page selected and app state updated.");
+                // The permission check is now async, so we need to await it
+                hasPermission(PERMISSIONS.VIEW_PAGE, appState.currentWiki.id).then(async canView => { // Added async to then callback
+                    if (!canView) {
+                        displayMessage('You do not have permission to view this page.', 'error');
+                        console.warn("Permission denied for viewing page.");
+                        return;
+                    }
+                    await updateAppState({ currentPage: selectedPage }); // Await update
+                    console.log("Page selected and app state updated.");
+                });
             } else {
                 console.log("Page not found in current wiki.");
             }
@@ -752,8 +799,8 @@
             }
         }
 
-        function filterPagesByCategory(category) {
-            updateAppState({ currentCategory: category, currentPage: null }); // Set category, clear current page
+        async function filterPagesByCategory(category) { // Made async
+            await updateAppState({ currentCategory: category, currentPage: null }); // Set category, clear current page
             // Close sidebar on mobile after selecting a category
             if (window.innerWidth < 1024) { 
                 toggleSidebar();
@@ -771,18 +818,18 @@
                     showModal('viewUserProfileModal');
                 } else {
                     displayMessage('User profile not found.', 'error');
-                    navigateToDefaultView(); // Go back to default if user not found
+                    navigateToDefaultView();
                 }
             } catch (error) {
                 console.error("Error fetching user profile:", error);
                 displayMessage('Failed to load user profile. ' + error.message, 'error');
-                navigateToDefaultView(); // Go back to default on error
+                navigateToDefaultView();
             }
         }
 
 
         // --- Rendering Functions ---
-        function renderApp() {
+        async function renderApp() { // Made async
             document.documentElement.classList.toggle('dark', appState.isDarkMode);
             
             const userInfo = document.getElementById('user-info');
@@ -821,47 +868,18 @@
                 document.getElementById('page-edit-form-container').classList.add('hidden');
             } else {
                 document.getElementById('wiki-header').classList.remove('hidden');
-                renderPageContent(); // Re-render page content once loading is done
-            }
-
-
-            renderWikis();
-            renderPageEditorState(); // Render state of page editor
-            renderWikiActions(); // Render wiki action buttons
-            renderManageUsersModal(); // Update user management modal
-            updateSidebarDisplay(); // Update sidebar visibility and content
-            renderUserSearchResults(); // Call new function to render user search results
-
-            // Hide/show action buttons based on permissions
-            if (sidebarAddPageButton) sidebarAddPageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) ? 'block' : 'none';
-            if (addPageButton) addPageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) ? 'block' : 'none';
-            if (manageUsersButton) manageUsersButton.style.display = hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki?.id) ? 'block' : 'none';
-            // New: Show manage categories button
-            if (manageCategoriesButton) manageCategoriesButton.style.display = hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki?.id) ? 'block' : 'none';
-            if (deleteWikiButton) deleteWikiButton.style.display = hasPermission(PERMISSIONS.DELETE_WIKI, appState.currentWiki?.id) ? 'block' : 'none';
-            
-            // New: Show upload image button based on permissions
-            if (uploadImageButton) {
-                const canUploadImage = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) || hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id);
-                uploadImageButton.style.display = canUploadImage ? 'inline-block' : 'none';
-            }
-            // New: Show edit page button based on permissions and if a page is selected
-            if (editPageButton) {
-                editPageButton.style.display = (appState.currentPage && hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id)) ? 'inline-block' : 'none';
-            }
-
-
-            // Hide page edit form if not logged in or no permissions
-            if (pageEditFormContainer) {
-                const canEditPage = appState.currentPage && hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id);
-                const canCreatePage = !appState.currentPage && hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id);
-                if (!canEditPage && !canCreatePage) {
-                    pageEditFormContainer.classList.add('hidden');
-                }
+                // Await all async rendering functions
+                await renderPageContent();
+                await renderPageEditorState();
+                await renderWikiActions();
+                await renderManageUsersModal();
+                await updateSidebarDisplay();
+                await renderWikis(); // This needs to be awaited now
+                renderUserSearchResults(); // This one is not async, so no await needed
             }
         }
 
-        function updateSidebarDisplay() {
+        async function updateSidebarDisplay() { // Made async
             const currentWikiSidebarInfo = document.getElementById('current-wiki-sidebar-info');
             const sidebarPagesList = document.getElementById('sidebar-pages-list');
             const sidebarCategoriesList = document.getElementById('sidebar-categories-list'); // New element
@@ -870,13 +888,13 @@
             if (!currentWikiSidebarInfo || !sidebarPagesList || !sidebarCategoriesList) return; // Null checks
 
             // Only show wiki info if a wiki is selected AND no search term is active
-            if (appState.currentWiki && canAccessWiki(appState.currentWiki) && !appState.searchTerm) {
+            if (appState.currentWiki && await canAccessWiki(appState.currentWiki) && !appState.searchTerm) { // Await canAccessWiki
                 currentWikiSidebarInfo.classList.remove('hidden');
                 document.getElementById('sidebar-wiki-name').textContent = appState.currentWiki.name;
                 document.getElementById('sidebar-wiki-description').textContent = appState.currentWiki.description;
 
                 if (sidebarAddPageButton) {
-                    sidebarAddPageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id) ? 'block' : 'none';
+                    sidebarAddPageButton.style.display = await hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id) ? 'block' : 'none';
                 }
 
                 // Render Categories
@@ -905,13 +923,7 @@
                     li.textContent = displayCategory;
                     
                     li.onclick = () => {
-                        if (category === 'All Pages') {
-                            filterPagesByCategory(null); // Clear category filter
-                        } else if (category === 'Uncategorized') {
-                            filterPagesByCategory('__uncategorized__'); // Filter for pages with empty category
-                        } else {
-                            filterPagesByCategory(category);
-                        }
+                        filterPagesByCategory(category === 'All Pages' ? null : category === 'Uncategorized' ? '__uncategorized__' : category);
                     };
                     sidebarCategoriesList.appendChild(li);
                 });
@@ -945,7 +957,7 @@
             }
         }
 
-        function renderWikis() {
+        async function renderWikis() { // Made async
             const wikiList = document.getElementById('wiki-list');
             if (!wikiList) return; // Null check
 
@@ -957,22 +969,25 @@
                 return;
             }
 
-            const filteredWikis = appState.wikis.filter(wiki =>
-                canAccessWiki(wiki) && // Only show wikis the current user can access
-                ((wiki.name || '').toLowerCase().includes(appState.searchTerm.toLowerCase()) ||
-                (wiki.description || '').toLowerCase().includes(appState.searchTerm.toLowerCase()))
-            );
+            // Filter wikis based on access and search term
+            const accessibleWikisPromises = appState.wikis.map(async wiki => {
+                const canAccess = await canAccessWiki(wiki);
+                const matchesSearch = ((wiki.name || '').toLowerCase().includes(appState.searchTerm.toLowerCase()) ||
+                                      (wiki.description || '').toLowerCase().includes(appState.searchTerm.toLowerCase()));
+                return canAccess && matchesSearch ? wiki : null;
+            });
 
-            if (filteredWikis.length === 0 && !appState.searchTerm) {
+            const resolvedWikis = (await Promise.all(accessibleWikisPromises)).filter(Boolean); // Filter out nulls
+
+            if (resolvedWikis.length === 0 && !appState.searchTerm) {
                 wikiList.innerHTML = '<li class="text-gray-600 dark:text-gray-400">No wikis available.</li>';
                 return;
-            } else if (filteredWikis.length === 0 && appState.searchTerm) {
+            } else if (resolvedWikis.length === 0 && appState.searchTerm) {
                  wikiList.innerHTML = '<li class="text-gray-600 dark:text-gray-400">No wikis match your search.</li>';
                  return;
             }
 
-
-            filteredWikis.forEach(wiki => {
+            resolvedWikis.forEach(wiki => {
                 const wikiElement = document.createElement('li');
                 // Only highlight if no search term is active and it's the current wiki
                 wikiElement.className = `p-3 rounded-md cursor-pointer flex items-center space-x-3 transition hover:bg-gray-300 dark:hover:bg-gray-700 ${appState.currentWiki && appState.currentWiki.id === wiki.id && !appState.searchTerm ? 'bg-primary text-white hover:!bg-primary-dark' : 'bg-gray-100 dark:bg-gray-700'}`;
@@ -981,6 +996,7 @@
                     <div class="flex-1">
                         <div class="font-semibold text-lg ${appState.currentWiki && appState.currentWiki.id === wiki.id && !appState.searchTerm ? 'text-white' : 'text-gray-800 dark:text-gray-100'}">${wiki.name}</div>
                         <div class="text-sm ${appState.currentWiki && appState.currentWiki.id === wiki.id && !appState.searchTerm ? 'text-gray-200' : 'text-gray-600 dark:text-gray-400'}">${wiki.description}</div>
+                        ${wiki.isPublic ? '<span class="text-xs text-gray-400 dark:text-gray-500 ml-auto"><i class="fas fa-globe-americas mr-1"></i>Public</span>' : '<span class="text-xs text-gray-400 dark:text-gray-500 ml-auto"><i class="fas fa-lock mr-1"></i>Private</span>'}
                     </div>
                 `;
                 wikiElement.onclick = () => selectWiki(wiki.id);
@@ -1031,7 +1047,7 @@
         }
 
 
-        function renderPageContent() {
+        async function renderPageContent() {
             console.log("Rendering page content...");
             const pageDisplay = document.getElementById('page-display');
             const pageEditFormContainer = document.getElementById('page-edit-form-container');
@@ -1045,14 +1061,14 @@
             if (appState.currentPage) {
                 console.log("appState.currentPage is set:", appState.currentPage.title);
                 // Check if the user has permission to view the current page
-                if (hasPermission(PERMISSIONS.VIEW_PAGE, appState.currentWiki?.id)) {
+                if (await hasPermission(PERMISSIONS.VIEW_PAGE, appState.currentWiki?.id)) {
                     console.log("User has VIEW_PAGE permission.");
                     pageDisplay.innerHTML = marked.parse(appState.currentPage.content || 'No content for this page.');
                     pageDisplay.classList.remove('hidden');
                     pageEditFormContainer.classList.add('hidden');
                     
                     // Show/hide edit button based on permissions
-                    if (hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id)) {
+                    if (await hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id)) {
                         editPageButton.style.display = 'inline-block';
                         console.log("Edit page button shown.");
                     } else {
@@ -1075,7 +1091,7 @@
             }
         }
 
-        function renderPageEditorState() {
+        async function renderPageEditorState() {
             const pageEditFormContainer = document.getElementById('page-edit-form-container');
             const pageTitleInput = document.getElementById('page-title-input');
             const pageCategoryInput = document.getElementById('page-category-input'); // New element
@@ -1092,8 +1108,8 @@
                 return; // Null check for all elements
             }
 
-            const canEdit = appState.currentPage && hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id);
-            const canCreate = !appState.currentPage && hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id);
+            const canEdit = appState.currentPage && await hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id);
+            const canCreate = !appState.currentPage && await hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id);
 
             if (pageEditFormContainer.classList.contains('hidden') || (!canEdit && !canCreate)) {
                 // If the form is hidden, or if the user doesn't have permissions, ensure it's hidden
@@ -1109,19 +1125,19 @@
                 pageTitleInput.value = appState.currentPage.title;
                 pageCategoryInput.value = appState.currentPage.category || ''; // Populate category
                 pageContentEditor.value = appState.currentPage.content;
-                deletePageButton.style.display = hasPermission(PERMISSIONS.DELETE_PAGE, appState.currentWiki.id) ? 'inline-block' : 'none';
-                savePageButton.style.display = hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id) ? 'inline-block' : 'none';
+                deletePageButton.style.display = await hasPermission(PERMISSIONS.DELETE_PAGE, appState.currentWiki.id) ? 'inline-block' : 'none';
+                savePageButton.style.display = await hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id) ? 'inline-block' : 'none';
             } else {
                 editFormTitle.textContent = 'Create New Page';
                 pageTitleInput.value = '';
                 pageCategoryInput.value = ''; // Clear category for new page
                 pageContentEditor.value = '';
                 deletePageButton.style.display = 'none'; // Cannot delete a page that doesn't exist yet
-                savePageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id) ? 'inline-block' : 'none';
+                savePageButton.style.display = await hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id) ? 'inline-block' : 'none';
             }
             
             // Show/hide upload image button based on permissions
-            const canUploadImage = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) || hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id);
+            const canUploadImage = await hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) || await hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id);
             uploadImageButton.style.display = canUploadImage ? 'inline-block' : 'none';
 
             updatePreview(); // Initial preview update when form is shown
@@ -1141,17 +1157,17 @@
             }
         }
 
-        function renderWikiActions() {
+        async function renderWikiActions() {
             const addPageButton = document.getElementById('add-page-button');
             const manageUsersButton = document.getElementById('manage-users-button');
             const manageCategoriesButton = document.getElementById('manage-categories-button');
             const deleteWikiButton = document.getElementById('delete-wiki-button');
 
             // Add null checks for buttons and set display style
-            if (addPageButton) addPageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) ? 'block' : 'none';
-            if (manageUsersButton) manageUsersButton.style.display = hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki?.id) ? 'block' : 'none';
-            if (manageCategoriesButton) manageCategoriesButton.style.display = hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki?.id) ? 'block' : 'none';
-            if (deleteWikiButton) deleteWikiButton.style.display = hasPermission(PERMISSIONS.DELETE_WIKI, appState.currentWiki?.id) ? 'block' : 'none';
+            if (addPageButton) addPageButton.style.display = await hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) ? 'block' : 'none';
+            if (manageUsersButton) manageUsersButton.style.display = await hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki?.id) ? 'block' : 'none';
+            if (manageCategoriesButton) manageCategoriesButton.style.display = await hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki?.id) ? 'block' : 'none';
+            if (deleteWikiButton) deleteWikiButton.style.display = await hasPermission(PERMISSIONS.DELETE_WIKI, appState.currentWiki?.id) ? 'block' : 'none';
 
             const wikiTitle = document.getElementById('wiki-title');
             const wikiDescription = document.getElementById('wiki-description');
@@ -1160,7 +1176,7 @@
             if (wikiDescription) wikiDescription.textContent = appState.currentWiki ? appState.currentWiki.description : '';
         }
 
-        function renderManageUsersModal() {
+        async function renderManageUsersModal() {
             const userListContainer = document.getElementById('user-list-container');
             const noUsersMessage = document.getElementById('no-users-message');
             const addUserForm = document.getElementById('add-user-form');
@@ -1174,7 +1190,7 @@
             userListContainer.innerHTML = ''; // Clear previous list
 
             // Hide add user form if user doesn't have manage_users permission
-            if (hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki?.id)) {
+            if (await hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki?.id)) {
                 addUserForm.style.display = 'flex';
             } else {
                 addUserForm.style.display = 'none';
@@ -1186,7 +1202,7 @@
             }
 
             noUsersMessage.classList.add('hidden');
-            appState.currentWiki.users.forEach(wikiUser => {
+            appState.currentWiki.users.forEach(async wikiUser => {
                 const userElement = document.createElement('div');
                 userElement.className = 'flex justify-between items-center bg-gray-100 dark:bg-gray-700 p-2 rounded-md mb-2';
                 // Find user from the dynamically loaded appState.users
@@ -1195,7 +1211,7 @@
 
                 userElement.innerHTML = `
                     <span class="cursor-pointer hover:underline" onclick="window.location.hash = 'users/${wikiUser.userId}'">${userName} (${wikiUser.role})</span>
-                    ${hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki.id) && wikiUser.userId !== appState.currentUser?.id ? `
+                    ${await hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki.id) && wikiUser.userId !== appState.currentUser?.id ? `
                     <button class="remove-user-button bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded" data-user-id="${wikiUser.userId}">Remove</button>
                     ` : ''}
                 `;
@@ -1207,12 +1223,12 @@
             });
         }
 
-        function showManageCategoriesModal() {
+        async function showManageCategoriesModal() {
             if (!appState.currentWiki || !appState.currentUser) {
                 displayMessage('No wiki selected.', 'error');
                 return;
             }
-            if (!hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id)) {
+            if (!await hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id)) {
                 displayMessage('You do not have permission to manage categories.', 'error');
                 return;
             }
@@ -1220,7 +1236,7 @@
             showModal('manageCategoriesModal');
         }
 
-        function renderManageCategoriesModal() {
+        async function renderManageCategoriesModal() {
             const categoryManagementList = document.getElementById('category-management-list');
             const noCategoriesMessage = document.getElementById('no-categories-message');
             const addCategoryForm = document.getElementById('add-category-form');
@@ -1232,7 +1248,7 @@
 
             categoryManagementList.innerHTML = ''; // Clear previous list
 
-            if (hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki?.id)) {
+            if (await hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki?.id)) {
                 addCategoryForm.style.display = 'flex';
             } else {
                 addCategoryForm.style.display = 'none';
@@ -1246,12 +1262,12 @@
             }
 
             noCategoriesMessage.classList.add('hidden');
-            categories.forEach(category => {
+            categories.forEach(async category => {
                 const categoryElement = document.createElement('li');
                 categoryElement.className = 'flex justify-between items-center bg-gray-100 dark:bg-gray-700 p-2 rounded-md mb-2';
                 categoryElement.innerHTML = `
                     <span>${category}</span>
-                    ${hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id) ? `
+                    ${await hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id) ? `
                     <button class="delete-category-button bg-red-500 hover:bg-red-600 text-white text-xs px-2 py-1 rounded" data-category-name="${category}">Delete</button>
                     ` : ''}
                 `;
@@ -1268,9 +1284,14 @@
 
         // Function to load user profiles from Firestore
         async function loadUsers() {
+            // If there's an existing listener, unsubscribe from it first
+            if (appState.usersUnsubscribe) {
+                appState.usersUnsubscribe();
+                console.log("[Firestore] Unsubscribed from previous users listener.");
+            }
             try {
                 // Real-time listener for user profiles
-                db.collection("users").onSnapshot(snapshot => {
+                appState.usersUnsubscribe = db.collection("users").onSnapshot(snapshot => {
                     const fetchedUsers = [];
                     snapshot.forEach(doc => {
                         fetchedUsers.push({ id: doc.id, ...doc.data() });
@@ -1280,6 +1301,7 @@
                     console.error("Error fetching users: ", error);
                     displayMessage('Error loading user profiles.', 'error');
                 });
+                console.log("[Firestore] Subscribed to users collection.");
             } catch (e) {
                 console.error("Error setting up Firestore users listener:", e);
             }
@@ -1287,10 +1309,15 @@
 
         // Function to load wikis and pages from Firestore
         async function loadWikisAndPages() {
-            updateAppState({ isLoading: true }); // Set loading state to true
+            await updateAppState({ isLoading: true }); // Set loading state to true and await render
+            // If there's an existing listener, unsubscribe from it first
+            if (appState.wikiUnsubscribe) {
+                appState.wikiUnsubscribe();
+                console.log("[Firestore] Unsubscribed from previous wikis listener.");
+            }
             try {
                 // Real-time listener for wikis
-                db.collection("wikis").orderBy("lastUpdated", "desc").onSnapshot(async snapshot => {
+                appState.wikiUnsubscribe = db.collection("wikis").orderBy("lastUpdated", "desc").onSnapshot(async snapshot => {
                     const fetchedWikis = [];
                     for (const doc of snapshot.docs) {
                         const wikiData = { id: doc.id, ...doc.data() };
@@ -1309,33 +1336,33 @@
                                                             .sort((a, b) => a.title.localeCompare(b.title)); // Sort by title in JS
                         fetchedWikis.push(wikiData);
                     }
-                    updateAppState({ wikis: fetchedWikis, isLoading: false }); // Update appState and set loading to false
+                    await updateAppState({ wikis: fetchedWikis, isLoading: false }); // Update appState and set loading to false, await render
                     
                     // If a currentWiki is set, ensure it's still in the fetched list
                     if (appState.currentWiki) {
                         const updatedCurrentWiki = fetchedWikis.find(w => w.id === appState.currentWiki.id);
                         if (updatedCurrentWiki) {
-                            updateAppState({ currentWiki: updatedCurrentWiki }); // Update currentWiki with fresh data including pages
+                            await updateAppState({ currentWiki: updatedCurrentWiki }); // Update currentWiki with fresh data including pages, await render
                             // If a page was selected, re-select it to update content
                             if (appState.currentPage) {
                                 const updatedCurrentPage = updatedCurrentWiki.pages.find(p => p.id === appState.currentPage.id);
-                                updateAppState({ currentPage: updatedCurrentPage || null });
+                                await updateAppState({ currentPage: updatedCurrentPage || null }); // Await render
                             }
                         } else {
                             // Current wiki was deleted
-                            updateAppState({ currentWiki: null, currentPage: null });
+                            await updateAppState({ currentWiki: null, currentPage: null }); // Await render
                         }
                     }
-                    renderWikis(); // Re-render the wiki list
-                    updateSidebarDisplay(); // Re-render sidebar content
-                }, error => {
+                    // renderWikis and updateSidebarDisplay are called via renderApp, which is called by updateAppState
+                }, async error => { // Made error callback async
                     console.error("Error fetching wikis and pages: ", error);
                     displayMessage('Error loading wikis and pages. Please try again.', 'error');
-                    updateAppState({ isLoading: false }); // Also set loading to false on error
+                    await updateAppState({ isLoading: false }); // Also set loading to false on error, await render
                 });
+                console.log("[Firestore] Subscribed to wikis collection.");
             } catch (e) {
                 console.error("Error setting up Firestore listeners:", e);
-                updateAppState({ isLoading: false }); // Also set loading to false on error
+                await updateAppState({ isLoading: false }); // Also set loading to false on error, await render
             }
         }
 
@@ -1384,7 +1411,7 @@
                 document.getElementById('create-wiki-form').reset();
                 hideModal('createWikiModal');
                 displayMessage('Wiki and default Home Page created successfully!', 'success');
-                selectWiki(newWikiRef.id); // Automatically select the new wiki
+                await selectWiki(newWikiRef.id); // Automatically select the new wiki, await
             } catch (error) {
                 console.error("Error creating wiki or default page: ", error);
                 displayMessage('Failed to create wiki. ' + error.message, 'error');
@@ -1411,7 +1438,7 @@
             try {
                 if (appState.currentPage && appState.currentPage.id) {
                     // Update existing page
-                    if (!hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id)) {
+                    if (!await hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id)) {
                         displayMessage('You do not have permission to edit this page.', 'error');
                         return;
                     }
@@ -1424,7 +1451,7 @@
                     displayMessage('Page updated successfully!', 'success');
                 } else {
                     // Create new page
-                    if (!hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id)) {
+                    if (!await hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id)) {
                         displayMessage('You do not have permission to create pages in this wiki.', 'error');
                         return;
                     }
@@ -1438,7 +1465,7 @@
                         lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
                     });
                     // Update appState to reflect the newly created page
-                    updateAppState({ currentPage: { id: newPageRef.id, wikiId: appState.currentWiki.id, title: pageTitle, category: pageCategory, content: pageContent } });
+                    await updateAppState({ currentPage: { id: newPageRef.id, wikiId: appState.currentWiki.id, title: pageTitle, category: pageCategory, content: pageContent } }); // Await update
                     displayMessage('Page created successfully!', 'success');
                 }
                 // The onSnapshot listener for wikis/pages will re-fetch and update appState.wikis,
@@ -1457,7 +1484,7 @@
             }
 
             const wikiId = appState.currentWiki.id;
-            if (!hasPermission(PERMISSIONS.DELETE_WIKI, wikiId)) {
+            if (!await hasPermission(PERMISSIONS.DELETE_WIKI, wikiId)) {
                 displayMessage('You do not have permission to delete this wiki.', 'error');
                 return;
             }
@@ -1492,7 +1519,7 @@
             }
         }
 
-        async function deleteCurrentPage() {
+        async function deleteCurrentPage() { // Made async
             if (!appState.currentPage || !appState.currentWiki || !appState.currentUser) {
                 displayMessage('No page selected to delete.', 'error');
                 return;
@@ -1501,7 +1528,7 @@
             const pageId = appState.currentPage.id;
             const wikiId = appState.currentWiki.id;
 
-            if (!hasPermission(PERMISSIONS.DELETE_PAGE, wikiId)) {
+            if (!await hasPermission(PERMISSIONS.DELETE_PAGE, wikiId)) {
                 displayMessage('You do not have permission to delete this page.', 'error');
                 return;
             }
@@ -1518,7 +1545,7 @@
             try {
                 await db.collection("pages").doc(pageId).delete();
                 displayMessage('Page deleted successfully!', 'success');
-                updateAppState({ currentPage: null }); // Clear the current page
+                await updateAppState({ currentPage: null }); // Clear the current page, await update
                 // The onSnapshot listener for wikis/pages will re-fetch and update appState.wikis,
                 // which will then trigger renderPages and updateSidebarDisplay
             } catch (error) {
@@ -1527,15 +1554,15 @@
             }
         }
 
-        function showPageEditForm() {
+        async function showPageEditForm() {
             const pageDisplay = document.getElementById('page-display');
             const pageEditFormContainer = document.getElementById('page-edit-form-container');
             
             if (!pageDisplay || !pageEditFormContainer) return; // Null check
 
             // Check if user has permission to create or edit
-            const canEdit = appState.currentPage && hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id);
-            const canCreate = !appState.currentPage && hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id);
+            const canEdit = appState.currentPage && await hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id);
+            const canCreate = !appState.currentPage && await hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id);
 
             if (!canEdit && !canCreate) {
                 displayMessage('You do not have permission to create or edit pages in this wiki.', 'error');
@@ -1545,7 +1572,7 @@
             pageDisplay.classList.add('hidden');
             pageEditFormContainer.classList.remove('hidden');
 
-            renderPageEditorState(); // This populates the form inputs
+            await renderPageEditorState(); // This populates the form inputs, await
             updatePreview(); // Ensure preview is updated when form is shown
 
             // Attach event listener for preview update only once
@@ -1568,7 +1595,7 @@
                 return;
             }
 
-            if (!hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki.id)) {
+            if (!await hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki.id)) {
                 displayMessage('You do not have permission to add users to this wiki.', 'error');
                 return;
             }
@@ -1621,7 +1648,7 @@
                 return;
             }
 
-            if (!hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki.id)) {
+            if (!await hasPermission(PERMISSIONS.MANAGE_USERS, appState.currentWiki.id)) {
                 displayMessage('You do not have permission to remove users.', 'error');
                 return;
             }
@@ -1662,7 +1689,7 @@
                 displayMessage('No wiki selected.', 'error');
                 return;
             }
-            if (!hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id)) {
+            if (!await hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id)) {
                 displayMessage('You do not have permission to manage categories.', 'error');
                 return;
             }
@@ -1700,7 +1727,7 @@
                 displayMessage('No wiki selected.', 'error');
                 return;
             }
-            if (!hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id)) {
+            if (!await hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki.id)) {
                 displayMessage('You do not have permission to manage categories.', 'error');
                 return;
             }
@@ -1782,6 +1809,7 @@
                 }
                 try {
                     const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                    console.log("[Auth] User created:", userCredential.user.uid); // Log user creation
                     // Store user profile in Firestore
                     await db.collection("users").doc(userCredential.user.uid).set({
                         email: userCredential.user.email,
@@ -1798,7 +1826,8 @@
                 }
             } else { // Login mode
                 try {
-                    await auth.signInWithEmailAndPassword(email, password);
+                    const userCredential = await auth.signInWithEmailAndPassword(email, password);
+                    console.log("[Auth] User signed in:", userCredential.user.uid); // Log user sign-in
                     // Update lastLogin on successful sign-in
                     if (auth.currentUser) {
                         await db.collection("users").doc(auth.currentUser.uid).update({
@@ -1822,6 +1851,7 @@
         async function handleLogout() {
             try {
                 await auth.signOut();
+                console.log("[Auth] User logged out."); // Log user logout
                 displayMessage('Logged out successfully!', 'success');
                 // onAuthStateChanged listener will handle clearing appState and UI
             } catch (error) {
@@ -1897,7 +1927,7 @@
             // For new pages, we don't have a page ID yet, so we allow upload if creating a page.
             const isCreatingNewPage = !appState.currentPage;
 
-            if (!hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id) && !(isCreatingNewPage && hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id))) {
+            if (!await hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id) && !(isCreatingNewPage && await hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id))) {
                 displayMessage('You do not have permission to add images to this page.', 'error');
                 return;
             }
@@ -2001,31 +2031,32 @@
             loadWikisAndPages();
 
             // Authentication state change listener - This is the primary entry point after load/auth change
-            auth.onAuthStateChanged(async (user) => {
+            auth.onAuthStateChanged(async (user) => { // Made async
                 if (user) {
+                    console.log("[Auth] User state changed: Logged In. UID:", user.uid, "Email:", user.email); // Added log
                     // User is signed in. Fetch full user profile from Firestore
                     try {
                         const userDoc = await db.collection("users").doc(user.uid).get();
+                        let userData;
                         if (userDoc.exists) {
-                            const userData = { id: user.uid, ...userDoc.data() }; // Ensure ID is included
-                            updateAppState({ currentUser: userData });
-                            displayMessage(`Welcome, ${userData.displayName || userData.email}!`, 'success');
+                            userData = { id: user.uid, ...userDoc.data() }; // Ensure ID is included
                         } else {
                             // This case might happen if user was created via Firebase Console directly
                             // without a corresponding Firestore 'users' document.
                             // Create a basic user document if it's not present.
                             console.warn("User profile not found in Firestore for UID:", user.uid, "Creating a basic one.");
-                            const basicUserData = {
+                            userData = {
                                 email: user.email,
                                 displayName: user.email.split('@')[0], // Default display name
                                 bio: '', // Default empty bio
                                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                                 lastLogin: firebase.firestore.FieldValue.serverTimestamp()
                             };
-                            await db.collection("users").doc(user.uid).set(basicUserData);
-                            updateAppState({ currentUser: { id: user.uid, ...basicUserData } });
-                            displayMessage(`Welcome, ${user.email}! (Profile created)`, 'info');
+                            await db.collection("users").doc(user.uid).set(userData);
+                            userData.id = user.uid; // Ensure ID is explicitly added for new user data
                         }
+                        await updateAppState({ currentUser: userData }); // Await update
+                        displayMessage(`Welcome, ${userData.displayName || userData.email}!`, 'success');
                         // Re-load data based on new auth status (important for permissions)
                         loadUsers();
                         loadWikisAndPages();
@@ -2035,8 +2066,9 @@
                         await auth.signOut(); // Force logout if data loading fails
                     }
                 } else {
+                    console.log("[Auth] User state changed: Logged Out."); // Added log
                     // User is signed out. Clear app state.
-                    updateAppState({ currentUser: null, wikis: [], users: [], currentWiki: null, currentPage: null });
+                    await updateAppState({ currentUser: null, wikis: [], users: [], currentWiki: null, currentPage: null }); // Await update
                     // Re-load wikis to show only public ones
                     loadWikisAndPages();
                 }
@@ -2057,22 +2089,22 @@
             document.getElementById('forgot-password-button')?.addEventListener('click', handleForgotPassword);
             
             // FIX: Explicitly set currentPage to null when creating a new page
-            document.getElementById('add-page-button')?.addEventListener('click', () => {
-                updateAppState({ currentPage: null }); 
+            document.getElementById('add-page-button')?.addEventListener('click', async () => { // Made async
+                await updateAppState({ currentPage: null }); // Await update
                 showPageEditForm();
             }); 
-            document.getElementById('sidebar-add-page-button')?.addEventListener('click', () => {
-                updateAppState({ currentPage: null });
+            document.getElementById('sidebar-add-page-button')?.addEventListener('click', async () => { // Made async
+                await updateAppState({ currentPage: null }); // Await update
                 showPageEditForm();
             }); 
 
             document.getElementById('page-form')?.addEventListener('submit', savePage);
-            document.getElementById('cancel-edit-page-button')?.addEventListener('click', () => {
+            document.getElementById('cancel-edit-page-button')?.addEventListener('click', async () => { // Made async
                 hidePageEditForm();
                 if (appState.currentPage) { // If editing an existing page, go back to its view
-                    renderPageContent();
+                    await renderPageContent(); // Await rendering
                 } else if (appState.currentWiki) { // If creating a new page, go back to wiki view
-                    selectWiki(appState.currentWiki.id);
+                    await selectWiki(appState.currentWiki.id); // Await selection
                 }
             });
             document.getElementById('delete-page-button')?.addEventListener('click', deleteCurrentPage);
@@ -2086,17 +2118,17 @@
             document.getElementById('my-profile-form')?.addEventListener('submit', saveMyProfile);
 
             // Search functionality
-            document.getElementById('wiki-search')?.addEventListener('input', (e) => {
+            document.getElementById('wiki-search')?.addEventListener('input', async (e) => { // Made async
                 appState.searchTerm = e.target.value;
-                renderWikis();
+                await renderWikis(); // Await rendering
                 renderUserSearchResults(); // Call to render user search results
-                updateSidebarDisplay(); // Update sidebar display to hide wiki info if searching
+                await updateSidebarDisplay(); // Update sidebar display to hide wiki info if searching, await
             });
-            document.getElementById('mobile-wiki-search')?.addEventListener('input', (e) => {
+            document.getElementById('mobile-wiki-search')?.addEventListener('input', async (e) => { // Made async
                 appState.searchTerm = e.target.value;
-                renderWikis();
+                await renderWikis(); // Await rendering
                 renderUserSearchResults(); // Call to render user search results
-                updateSidebarDisplay(); // Update sidebar display to hide wiki info if searching
+                await updateSidebarDisplay(); // Update sidebar display to hide wiki info if searching, await
             });
             
             // The event listener for page-content-editor is now handled inside showPageEditForm()
