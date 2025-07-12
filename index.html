@@ -8,9 +8,11 @@
     <!-- Changed Marked.js CDN to a version known for global availability -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.0.0/marked.min.js"></script>
     
+    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/9.17.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.17.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.17.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.0/firebase-storage-compat.js"></script> <!-- Added Firebase Storage SDK -->
 
     
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
@@ -168,6 +170,15 @@
                             <div class="mb-4">
                                 <label for="page-content-editor" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Content (Markdown)</label>
                                 <textarea id="page-content-editor" rows="15" class="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-primary focus:border-primary"></textarea>
+                            </div>
+                            <!-- New: Image Upload Section -->
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Add Image</label>
+                                <input type="file" id="image-upload-input" accept="image/*" class="hidden">
+                                <button type="button" id="upload-image-button" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-md transition">
+                                    <i class="fas fa-image mr-2"></i>Upload Image
+                                </button>
+                                <span id="image-upload-status" class="ml-2 text-sm text-gray-600 dark:text-gray-400"></span>
                             </div>
                             <div class="mb-4">
                                 <label for="page-preview" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Preview</label>
@@ -383,6 +394,7 @@
         const app = firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore(); // Get Firestore instance
+        const storage = firebase.storage(); // Get Storage instance
 
         // Initialize Marked for Markdown parsing
         marked.setOptions({
@@ -742,7 +754,7 @@
             const deleteWikiButton = document.getElementById('delete-wiki-button');
             const pageEditFormContainer = document.getElementById('page-edit-form-container');
             const loadingIndicator = document.getElementById('loading-indicator');
-
+            const uploadImageButton = document.getElementById('upload-image-button'); // New
 
             if (appState.currentUser) {
                 if (userInfo) userInfo.style.display = 'flex';
@@ -785,6 +797,13 @@
             // New: Show manage categories button
             if (manageCategoriesButton) manageCategoriesButton.style.display = hasPermission(PERMISSIONS.MANAGE_CATEGORIES, appState.currentWiki?.id) ? 'block' : 'none';
             if (deleteWikiButton) deleteWikiButton.style.display = hasPermission(PERMISSIONS.DELETE_WIKI, appState.currentWiki?.id) ? 'block' : 'none';
+            
+            // New: Show upload image button based on permissions
+            if (uploadImageButton) {
+                const canUploadImage = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) || hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id);
+                uploadImageButton.style.display = canUploadImage ? 'inline-block' : 'none';
+            }
+
 
             // Hide page edit form if not logged in or no permissions
             if (pageEditFormContainer) {
@@ -1000,9 +1019,10 @@
             const pagePreview = document.getElementById('page-preview');
             const savePageButton = document.querySelector('#page-form button[type="submit"]');
             const cancelEditPageButton = document.getElementById('cancel-edit-page-button');
+            const uploadImageButton = document.getElementById('upload-image-button'); // New
 
 
-            if (!pageEditFormContainer || !pageTitleInput || !pageCategoryInput || !pageContentEditor || !editFormTitle || !deletePageButton || !pagePreview || !savePageButton || !cancelEditPageButton) {
+            if (!pageEditFormContainer || !pageTitleInput || !pageCategoryInput || !pageContentEditor || !editFormTitle || !deletePageButton || !pagePreview || !savePageButton || !cancelEditPageButton || !uploadImageButton) {
                 return; // Null check for all elements
             }
 
@@ -1033,6 +1053,11 @@
                 deletePageButton.style.display = 'none'; // Cannot delete a page that doesn't exist yet
                 savePageButton.style.display = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id) ? 'inline-block' : 'none';
             }
+            
+            // Show/hide upload image button based on permissions
+            const canUploadImage = hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki?.id) || hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki?.id);
+            uploadImageButton.style.display = canUploadImage ? 'inline-block' : 'none';
+
             updatePreview(); // Initial preview update when form is shown
         }
 
@@ -1795,6 +1820,104 @@
             }
         }
 
+        // --- Image Upload Logic ---
+        async function uploadAndInsertImage() {
+            // Ensure a wiki and page are selected, and user has permissions
+            if (!appState.currentWiki) {
+                displayMessage('Please select a wiki first.', 'error');
+                return;
+            }
+            // For new pages, we don't have a page ID yet, so we allow upload if creating a page.
+            const isCreatingNewPage = !appState.currentPage;
+
+            if (!hasPermission(PERMISSIONS.EDIT_PAGE, appState.currentWiki.id) && !(isCreatingNewPage && hasPermission(PERMISSIONS.CREATE_PAGE, appState.currentWiki.id))) {
+                displayMessage('You do not have permission to add images to this page.', 'error');
+                return;
+            }
+
+            const imageUploadInput = document.getElementById('image-upload-input');
+            const imageUploadStatus = document.getElementById('image-upload-status');
+            const pageContentEditor = document.getElementById('page-content-editor');
+
+            // Clear previous status
+            imageUploadStatus.textContent = '';
+            imageUploadStatus.classList.remove('text-red-500', 'text-green-500', 'text-blue-500');
+
+            // Trigger the hidden file input click
+            imageUploadInput.click();
+
+            // Handle file selection after the input is clicked
+            imageUploadInput.onchange = async (event) => {
+                const file = event.target.files[0];
+                if (!file) {
+                    imageUploadStatus.textContent = 'No file selected.';
+                    return;
+                }
+
+                imageUploadStatus.textContent = 'Uploading...';
+                imageUploadStatus.classList.add('text-blue-500');
+
+                try {
+                    // Define the path in Firebase Storage
+                    // Use a unique ID for the page if it's new, otherwise use the existing page ID
+                    const pageIdentifier = appState.currentPage ? appState.currentPage.id : 'temp_new_page_' + Date.now();
+                    const fileName = `${Date.now()}_${file.name}`;
+                    const storageRef = storage.ref(`wiki_images/${appState.currentWiki.id}/${pageIdentifier}/${fileName}`);
+                    
+                    const uploadTask = storageRef.put(file);
+
+                    uploadTask.on('state_changed', 
+                        (snapshot) => {
+                            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                            imageUploadStatus.textContent = `Uploading: ${progress.toFixed(0)}%`;
+                        }, 
+                        (error) => {
+                            console.error("Image upload failed:", error);
+                            imageUploadStatus.textContent = `Upload failed: ${error.message}`;
+                            imageUploadStatus.classList.remove('text-blue-500');
+                            imageUploadStatus.classList.add('text-red-500');
+                            displayMessage('Image upload failed: ' + error.message, 'error');
+                        }, 
+                        () => {
+                            uploadTask.snapshot.ref.getDownloadURL().then((downloadURL) => {
+                                console.log('File available at', downloadURL);
+                                const markdownImage = `![Alt Text for Image](${downloadURL})`;
+                                const currentContent = pageContentEditor.value;
+                                const cursorPosition = pageContentEditor.selectionStart;
+                                
+                                // Insert the markdown image at the current cursor position
+                                pageContentEditor.value = currentContent.substring(0, cursorPosition) + 
+                                                           markdownImage + 
+                                                           currentContent.substring(cursorPosition);
+                                
+                                updatePreview();
+                                imageUploadStatus.textContent = 'Upload complete!';
+                                imageUploadStatus.classList.remove('text-blue-500');
+                                imageUploadStatus.classList.add('text-green-500');
+                                displayMessage('Image uploaded and inserted!', 'success');
+                                
+                                // Clear the file input to allow re-uploading the same file
+                                imageUploadInput.value = ''; 
+                            }).catch(error => {
+                                console.error("Error getting download URL:", error);
+                                imageUploadStatus.textContent = `Error getting URL: ${error.message}`;
+                                imageUploadStatus.classList.remove('text-blue-500');
+                                imageUploadStatus.classList.add('text-red-500');
+                                displayMessage('Error getting image URL: ' + error.message, 'error');
+                            });
+                        }
+                    );
+
+                } catch (error) {
+                    console.error("Error initiating image upload:", error);
+                    imageUploadStatus.textContent = `Error: ${error.message}`;
+                    imageUploadStatus.classList.remove('text-blue-500');
+                    imageUploadStatus.classList.add('text-red-500');
+                    displayMessage('Error initiating image upload: ' + error.message, 'error');
+                }
+            };
+        }
+
 
         // --- Event Listeners ---
         document.addEventListener('DOMContentLoaded', () => {
@@ -1911,6 +2034,8 @@
             
             // The event listener for page-content-editor is now handled inside showPageEditForm()
             // This ensures the element exists when the listener is attached.
+            // New: Event listener for image upload button
+            document.getElementById('upload-image-button')?.addEventListener('click', uploadAndInsertImage);
 
             // Add hashchange listener
             window.addEventListener('hashchange', handleUrlChange);
